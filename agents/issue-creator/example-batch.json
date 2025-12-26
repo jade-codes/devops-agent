@@ -1,0 +1,19 @@
+[
+    {
+        "title": "test: Add tests for User authentication",
+        "body": "**File:** `src/auth.rs:42`\n\n**Function:** `authenticate_user`\n\n**Coverage:** 0.0%\n\nThis function needs comprehensive test coverage.",
+        "labels": [
+            "testing",
+            "priority-high"
+        ],
+        "priority": "high"
+    },
+    {
+        "title": "TODO: Implement caching layer",
+        "body": "Add Redis caching to improve performance",
+        "labels": [
+            "enhancement",
+            "performance"
+        ]
+    }
+]

@@ -1,0 +1,117 @@
+name: "Example Code Quality Checklist"
+description: "Checks for code quality, security, and documentation standards"
+
+# File patterns to include (glob patterns)
+file_patterns:
+  - "**/*.rs"
+  - "**/*.py"
+  - "**/*.js"
+  - "**/*.ts"
+  - "**/*.go"
+  - "**/*.java"
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+
+# File patterns to exclude
+exclude_patterns:
+  - "**/target/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.git/**"
+  - "**/vendor/**"
+  - "**/*.min.js"
+  - "**/*.test.*"
+
+# Checklist items
+items:
+  - category: "Security"
+    rule: "No hardcoded secrets"
+    description: "Check if the code contains any hardcoded passwords, API keys, tokens, or credentials"
+    severity: "error"
+
+  - category: "Security"
+    rule: "No SQL injection vulnerabilities"
+    description: "Verify that SQL queries use parameterized queries or prepared statements"
+    severity: "error"
+
+  - category: "Security"
+    rule: "Proper input validation"
+    description: "Check if user inputs are properly validated and sanitized"
+    severity: "warning"
+
+  - category: "Documentation"
+    rule: "Functions have documentation"
+    description: "All public functions should have doc comments explaining their purpose, parameters, and return values"
+    severity: "warning"
+
+  - category: "Documentation"
+    rule: "Complex logic is commented"
+    description: "Complex algorithms or business logic should have explanatory comments"
+    severity: "info"
+
+  - category: "Code Quality"
+    rule: "Proper error handling"
+    description: "Errors should be properly handled with Result types or try-catch blocks, not ignored"
+    severity: "error"
+
+  - category: "Code Quality"
+    rule: "No TODO/FIXME without issue reference"
+    description: "TODO and FIXME comments should reference an issue number or have a plan"
+    severity: "warning"
+
+  - category: "Code Quality"
+    rule: "Functions are not too long"
+    description: "Functions should be concise (ideally under 50 lines). Long functions should be refactored"
+    severity: "info"
+
+  - category: "Code Quality"
+    rule: "Meaningful variable names"
+    description: "Variables should have clear, descriptive names that indicate their purpose"
+    severity: "info"
+
+  - category: "Best Practices"
+    rule: "No commented-out code"
+    description: "Commented-out code should be removed. Use version control instead"
+    severity: "warning"
+
+  - category: "Best Practices"
+    rule: "DRY principle"
+    description: "Check for code duplication that could be refactored into reusable functions"
+    severity: "info"
+
+  - category: "Performance"
+    rule: "Efficient data structures"
+    description: "Verify that appropriate data structures are used for the task"
+    severity: "info"
+
+  - category: "Testing"
+    rule: "Public functions have tests"
+    description: "All public functions and methods should have corresponding unit tests"
+    severity: "warning"
+
+  - category: "Testing"
+    rule: "Test coverage for complex logic"
+    description: "Complex functions with multiple branches should have comprehensive test coverage"
+    severity: "error"
+
+  - category: "Testing"
+    rule: "Edge cases are tested"
+    description: "Tests should cover edge cases, error conditions, and boundary values"
+    severity: "warning"
+
+  - category: "Testing"
+    rule: "No untested exported APIs"
+    description: "All exported/public APIs must have at least basic test coverage"
+    severity: "error"
+
+  - category: "Testing"
+    rule: "Tests are procedural"
+    description: "Test functions should be simple and procedural, avoiding if/else/match/loops. Tests with conditional logic are harder to understand and may hide bugs"
+    severity: "warning"
+
+  - category: "Build & CI"
+    rule: "Make run-guidelines passes"
+    description: "If the project has a Makefile with 'run-guidelines' target, it must pass successfully"
+    severity: "error"

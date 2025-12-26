@@ -1,0 +1,44 @@
+{
+  "name": "DevOps Agent Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates",
+        "github.copilot",
+        "github.copilot-chat"
+      ],
+      "settings": {
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "editor.formatOnSave": true,
+        "files.watcherExclude": {
+          "**/target/**": true
+        }
+      }
+    }
+  },
+
+  "postCreateCommand": "cargo build --release && echo '✅ Dev container ready! DevOps Agent built successfully.'",
+
+  "remoteEnv": {
+    "RUST_BACKTRACE": "1"
+  },
+
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,readonly,type=bind,consistency=cached"
+  ],
+
+  "forwardPorts": [],
+
+  "portsAttributes": {},
+
+  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}"
+}
