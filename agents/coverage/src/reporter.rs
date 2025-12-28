@@ -81,6 +81,44 @@ pub fn generate_json_report(
     serde_json::to_string_pretty(&report).context("Failed to serialize report")
 }
 
+pub fn generate_csv_report(
+    coverage: &CoverageData,
+    uncovered: &[UncoveredItem],
+    threshold: f32,
+) -> String {
+    let mut csv = String::new();
+
+    // Header
+    csv.push_str(&format!(
+        "# Overall Coverage: {:.1}% (threshold: {:.1}%)\n",
+        coverage.overall_percentage, threshold
+    ));
+    csv.push_str(&format!(
+        "# Meets Threshold: {}\n",
+        coverage.overall_percentage >= threshold
+    ));
+    csv.push_str(&format!("# Uncovered Items: {}\n", uncovered.len()));
+    csv.push_str("\n");
+
+    // CSV header row
+    csv.push_str("File,Line,Function,Coverage,Severity,Type\n");
+
+    // Data rows
+    for item in uncovered {
+        csv.push_str(&format!(
+            "\"{}\",{},\"{}\",{:.1}%,{},{:?}\n",
+            item.file,
+            item.line,
+            item.function,
+            item.coverage_percentage,
+            item.severity(),
+            item.item_type
+        ));
+    }
+
+    csv
+}
+
 pub fn create_github_issues(uncovered: &[UncoveredItem]) -> Result<()> {
     for item in uncovered {
         let title = item.title();

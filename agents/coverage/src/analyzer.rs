@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
+use quick_xml::events::Event;
+use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -65,29 +66,53 @@ impl UncoveredItem {
 }
 
 pub fn run_coverage(repo_path: &Path) -> Result<CoverageData> {
-    // Run cargo tarpaulin
-    let output = Command::new("cargo")
+    // Try cargo-llvm-cov first (much faster), fall back to tarpaulin
+    println!("🔬 Attempting fast coverage with cargo-llvm-cov...");
+    let llvm_cov_result = Command::new("cargo")
         .args([
-            "tarpaulin",
-            "--out",
-            "Xml",
-            "--output-dir",
-            ".",
-            "--skip-clean",
-            "--exclude-files",
-            "target/*",
+            "llvm-cov",
+            "--cobertura",
+            "--output-path",
+            "cobertura.xml",
+            "--workspace",
+            "--release",         // Use release builds (much faster tests)
+            "--ignore-run-fail", // Continue even if some tests fail
         ])
         .current_dir(repo_path)
-        .output()
-        .context(
-            "Failed to run cargo tarpaulin. Is it installed? Run: cargo install cargo-tarpaulin",
-        )?;
+        .output();
 
-    if !output.status.success() {
-        anyhow::bail!(
-            "cargo tarpaulin failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+    if llvm_cov_result.is_ok() && llvm_cov_result.as_ref().unwrap().status.success() {
+        println!("✅ Used cargo-llvm-cov (fast)");
+    } else {
+        // Fall back to tarpaulin
+        println!("⚠️  cargo-llvm-cov not available, using tarpaulin (slower)...");
+        let output = Command::new("cargo")
+            .args([
+                "tarpaulin",
+                "--out",
+                "Xml",
+                "--output-dir",
+                ".",
+                "--skip-clean",
+                "--exclude-files",
+                "target/*",
+                "--timeout",
+                "300", // 5 minute timeout per test
+                "--release", // Use release builds for faster execution
+                "--lib", // Only test library code (skip bins)
+            ])
+            .current_dir(repo_path)
+            .output()
+            .context(
+                "Failed to run cargo tarpaulin. Is it installed? Run: cargo install cargo-tarpaulin",
+            )?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "cargo tarpaulin failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
     // Load the generated cobertura.xml
@@ -103,21 +128,156 @@ pub fn load_coverage(coverage_file: &Path) -> Result<CoverageData> {
 }
 
 fn parse_cobertura(xml: &str) -> Result<CoverageData> {
-    // Parse cobertura XML (simplified parser for demo)
-    // In production, use a proper XML parser like quick-xml
+    let mut reader = Reader::from_str(xml);
+    reader.trim_text(true);
 
-    let overall_regex = regex::Regex::new(r#"line-rate="([0-9.]+)""#)?;
-    let overall_percentage = if let Some(cap) = overall_regex.captures(xml) {
-        cap[1].parse::<f32>()? * 100.0
-    } else {
-        0.0
-    };
+    let mut overall_percentage = 0.0;
+    let mut files = Vec::new();
+    let mut current_file: Option<FileCoverage> = None;
+    let mut current_method_name = String::new();
+    let mut in_method = false;
+    let mut method_line = 0;
+    let mut method_hits = 0;
 
-    // For now, return simplified data structure
-    // In production, parse full XML to extract all files, lines, and functions
+    loop {
+        match reader.read_event() {
+            Ok(Event::Eof) => break,
+            Ok(Event::Start(e)) => {
+                match e.name().as_ref() {
+                    b"coverage" => {
+                        // Extract overall line-rate
+                        for attr in e.attributes() {
+                            if let Ok(attr) = attr {
+                                if attr.key.as_ref() == b"line-rate" {
+                                    if let Ok(value) = std::str::from_utf8(&attr.value) {
+                                        overall_percentage =
+                                            value.parse::<f32>().unwrap_or(0.0) * 100.0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    b"class" => {
+                        // Start a new file
+                        let mut filename = String::new();
+                        let mut line_rate = 0.0;
+
+                        for attr in e.attributes() {
+                            if let Ok(attr) = attr {
+                                match attr.key.as_ref() {
+                                    b"filename" => {
+                                        if let Ok(value) = std::str::from_utf8(&attr.value) {
+                                            filename = value.to_string();
+                                        }
+                                    }
+                                    b"line-rate" => {
+                                        if let Ok(value) = std::str::from_utf8(&attr.value) {
+                                            line_rate = value.parse::<f32>().unwrap_or(0.0) * 100.0;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+
+                        if !filename.is_empty() {
+                            current_file = Some(FileCoverage {
+                                path: filename,
+                                coverage_percentage: line_rate,
+                                lines_covered: 0,
+                                lines_total: 0,
+                                uncovered_lines: vec![],
+                                functions: vec![],
+                            });
+                        }
+                    }
+                    b"method" => {
+                        in_method = true;
+                        method_hits = 0;
+
+                        for attr in e.attributes() {
+                            if let Ok(attr) = attr {
+                                match attr.key.as_ref() {
+                                    b"name" => {
+                                        if let Ok(value) = std::str::from_utf8(&attr.value) {
+                                            // Clean up method name
+                                            current_method_name = value
+                                                .replace("&lt;", "<")
+                                                .replace("&gt;", ">")
+                                                .replace("::{closure#0}", "");
+                                        }
+                                    }
+                                    b"line-rate" => {
+                                        if let Ok(value) = std::str::from_utf8(&attr.value) {
+                                            let rate = value.parse::<f32>().unwrap_or(0.0);
+                                            method_hits = if rate > 0.0 { 1 } else { 0 };
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    b"line" => {
+                        if in_method {
+                            for attr in e.attributes() {
+                                if let Ok(attr) = attr {
+                                    if attr.key.as_ref() == b"number" {
+                                        if let Ok(value) = std::str::from_utf8(&attr.value) {
+                                            method_line = value.parse::<usize>().unwrap_or(0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) => {
+                match e.name().as_ref() {
+                    b"method" => {
+                        if in_method && !current_method_name.is_empty() {
+                            if let Some(ref mut file) = current_file {
+                                let coverage_pct = if method_hits > 0 { 100.0 } else { 0.0 };
+                                file.functions.push(FunctionCoverage {
+                                    name: current_method_name.clone(),
+                                    line: method_line,
+                                    coverage_percentage: coverage_pct,
+                                    is_covered: method_hits > 0,
+                                });
+                            }
+                            in_method = false;
+                            current_method_name.clear();
+                            method_line = 0;
+                        }
+                    }
+                    b"class" => {
+                        // Finish current file
+                        if let Some(file) = current_file.take() {
+                            // Only add files with functions
+                            if !file.functions.is_empty() {
+                                files.push(file);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Error parsing XML at position {}: {:?}",
+                    reader.buffer_position(),
+                    e
+                ));
+            }
+            _ => {}
+        }
+    }
+
     Ok(CoverageData {
         overall_percentage,
-        files: vec![],
+        files,
     })
 }
 

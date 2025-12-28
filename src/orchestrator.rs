@@ -79,6 +79,17 @@ enum Commands {
         #[arg(short, long, default_value = "5")]
         max_chores: u8,
     },
+
+    /// Run coverage analysis and create issues
+    CoverageWorkflow {
+        /// Repository path
+        #[arg(short, long)]
+        repo_path: PathBuf,
+
+        /// Coverage threshold
+        #[arg(short, long, default_value = "90")]
+        threshold: u8,
+    },
 }
 
 #[tokio::main]
@@ -114,36 +125,38 @@ async fn main() -> Result<()> {
         } => {
             run_chore_workflow(&repo_path, max_chores).await?;
         }
+        Commands::CoverageWorkflow {
+            repo_path,
+            threshold,
+        } => {
+            run_coverage_workflow(&repo_path, threshold).await?;
+        }
     }
 
     Ok(())
 }
 
 /// Test Workflow: Find missing tests → Implement them
-async fn run_test_workflow(repo_path: &Path, threshold: u8, max_todos: u8) -> Result<()> {
+async fn run_test_workflow(repo_path: &Path, _threshold: u8, max_todos: u8) -> Result<()> {
     println!("🧪 Starting Test Workflow");
     println!("========================\n");
 
-    // Step 1: Run coverage analysis
-    println!("📊 Step 1: Running coverage analysis...");
-    let coverage_result = subagent::run_coverage_agent(repo_path, threshold, true).await?;
+    // Step 1: Get list of testing issues (already created by coverage agent)
+    println!("📋 Step 1: Fetching testing issues...");
+    let issues = get_coverage_issues(repo_path)?;
 
-    if !coverage_result.success {
-        println!("❌ Coverage analysis failed:");
-        println!("{}", coverage_result.stderr);
+    if issues.is_empty() {
+        println!("⚠️  No testing issues found. Run coverage analysis first:");
+        println!("   coverage --repo-path . --threshold 90 --create-issues");
         return Ok(());
     }
 
-    println!("✅ Coverage analysis complete\n");
-
-    // Step 2: Get list of issues
-    println!("📋 Step 2: Fetching coverage issues...");
-    let issues = get_coverage_issues(repo_path)?;
+    println!("✅ Found {} testing issues\n", issues.len());
     let issues_to_resolve = issues.into_iter().take(max_todos as usize);
 
-    // Step 3: Resolve each issue
+    // Step 2: Resolve each issue
     for (idx, issue_num) in issues_to_resolve.enumerate() {
-        println!("\n🔧 Step 3.{}: Resolving issue #{}...", idx + 1, issue_num);
+        println!("\n🔧 Step 2.{}: Resolving issue #{}...", idx + 1, issue_num);
 
         let resolver_result = subagent::run_todo_resolver(repo_path, issue_num, true).await?;
 
@@ -312,6 +325,46 @@ async fn run_chore_workflow(repo_path: &Path, max_chores: u8) -> Result<()> {
     Ok(())
 }
 
+/// Coverage Workflow: Analyze coverage and create issues
+async fn run_coverage_workflow(repo_path: &Path, threshold: u8) -> Result<()> {
+    println!("📊 Starting Coverage Workflow");
+    println!("============================\n");
+
+    // Step 1: Run coverage analysis and create issues
+    println!(
+        "🔍 Step 1: Running coverage analysis with threshold {}%...",
+        threshold
+    );
+    let coverage_result = subagent::run_coverage_agent(repo_path, threshold, true).await?;
+
+    if !coverage_result.success {
+        println!("❌ Coverage analysis failed:");
+        println!("{}", coverage_result.stderr);
+        return Ok(());
+    }
+
+    println!("✅ Coverage analysis complete\n");
+    println!("{}", coverage_result.stdout);
+
+    // Step 2: Count created issues
+    println!("\n📋 Step 2: Checking created issues...");
+    let issues = get_coverage_issues(repo_path)?;
+    println!(
+        "✅ Found {} testing issues ready to resolve\n",
+        issues.len()
+    );
+
+    println!("💡 Next steps:");
+    println!("   Run test workflow to implement tests:");
+    println!(
+        "   orchestrator test-workflow --repo-path {} --max-todos 5",
+        repo_path.display()
+    );
+
+    println!("\n✅ Coverage workflow complete!");
+    Ok(())
+}
+
 /// Helper to get coverage issues from GitHub
 fn get_coverage_issues(repo_path: &Path) -> Result<Vec<u32>> {
     use std::process::Command;
@@ -321,7 +374,7 @@ fn get_coverage_issues(repo_path: &Path) -> Result<Vec<u32>> {
             "issue",
             "list",
             "--label",
-            "coverage",
+            "testing",
             "--json",
             "number",
             "--jq",

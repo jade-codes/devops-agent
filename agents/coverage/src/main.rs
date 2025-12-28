@@ -21,7 +21,7 @@ struct Args {
     #[arg(long)]
     create_issues: bool,
 
-    /// Output format: console, json, or markdown
+    /// Output format: console, json, markdown, or csv
     #[arg(short, long, default_value = "console")]
     output: String,
 
@@ -85,6 +85,10 @@ fn main() -> Result<()> {
         "markdown" => {
             let report =
                 reporter::generate_markdown_report(&coverage_data, &uncovered, args.threshold);
+            println!("{report}");
+        }
+        "csv" => {
+            let report = reporter::generate_csv_report(&coverage_data, &uncovered, args.threshold);
             println!("{report}");
         }
         _ => {
