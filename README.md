@@ -1,31 +1,55 @@
-# 🤖 DevOps Agent
+# 🤖 Chore Bot - Automated Test Coverage Agent
 
-A Rust-based code review agent that scans your repository and runs automated checklists using Claude AI. Perfect for maintaining code quality, security standards, and best practices in your GitHub repositories.
+A Rust-based multi-agent automation system that automatically identifies untested code and creates pull requests with comprehensive test coverage. Built to help maintain high test coverage standards without manual effort.
 
 ## ✨ Features
 
-- 🔍 **Automated Code Analysis** - Scans code files and checks against customizable rules
-- 🤖 **Claude AI Integration** - Uses Claude to perform intelligent code review
-- 📋 **Flexible Checklists** - YAML-based configuration for custom rules and patterns
-- 🎯 **PR-Focused** - Can analyze only changed files in pull requests
-- 📊 **Multiple Output Formats** - Console, Markdown, and JSON reports
-- 💬 **GitHub Integration** - Automatically posts analysis results as PR comments
-- ⚡ **Fast & Efficient** - Built in Rust for maximum performance
+- 🔍 **Automated Coverage Analysis** - Scans code using cargo-llvm-cov and identifies functions below coverage threshold
+- 🤖 **Intelligent Test Generation** - Analyzes source code structure and generates real, executable tests
+- 📋 **Issue Tracking** - Automatically creates GitHub issues for untested functions
+- 🔄 **Multi-Agent Orchestration** - Coordinates coverage analysis and test implementation workflows
+- 🚀 **Automated PRs** - Creates pull requests with generated tests that pass CI
+- ⚡ **Fast & Efficient** - Built in Rust with optimized coverage tools
+- 🎯 **Smart Filtering** - Only processes issues without existing PRs
+
+## 🏗️ Architecture
+
+### Agents
+
+1. **Coverage Agent** (`agents/coverage/`)
+   - Runs `cargo-llvm-cov` to analyze test coverage
+   - Parses cobertura.xml reports
+   - Creates GitHub issues for functions with <90% coverage
+   - Tracks coverage at file and function levels
+
+2. **Todo-Resolver Agent** (`agents/todo-resolver/`)
+   - Fetches testing issues from GitHub
+   - Analyzes source code to understand function signatures and struct fields
+   - Generates context-aware tests based on function types (PartialEq, Clone, constructors, etc.)
+   - Runs tests to verify they work
+   - Creates branches, commits, and opens pull requests
+
+3. **Orchestrator** (`src/orchestrator.rs`)
+   - Coordinates workflows across multiple agents
+   - **Coverage Workflow**: Runs coverage analysis and creates issues
+   - **Test Workflow**: Processes issues and creates PRs
+   - Filters out issues that already have PRs
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Rust 1.70 or higher
-- An Anthropic API key ([get one here](https://console.anthropic.com/))
-- GitHub repository (for GitHub Actions integration)
+- `cargo-llvm-cov` installed (`cargo install cargo-llvm-cov`)
+- GitHub CLI (`gh`) authenticated
+- Target repository cloned locally
 
-### Local Installation
+### Installation
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/devops-agent.git
-   cd devops-agent
+   git clone https://github.com/your-username/chore-bot.git
+   cd chore-bot
    ```
 
 2. **Build the project:**
@@ -33,184 +57,179 @@ A Rust-based code review agent that scans your repository and runs automated che
    cargo build --release
    ```
 
-3. **Set your Anthropic API key:**
+3. **Clone your target repository:**
    ```bash
-   export ANTHROPIC_API_KEY="your-api-key-here"
+   cd repos/
+   git clone https://github.com/your-org/your-repo.git
+   cd ..
    ```
-
-4. **Run the agent:**
-   ```bash
-   ./target/release/devops-agent --repo-path /path/to/your/project
-   ```
-
-## 📋 Configuration
-
-### Checklist Configuration
-
-Create or modify `checklist.yaml` to define your code review rules:
-
-```yaml
-name: "My Code Quality Checklist"
-description: "Custom rules for my project"
-
-file_patterns:
-  - "**/*.rs"
-  - "**/*.py"
-  - "**/*.js"
-
-exclude_patterns:
-  - "**/target/**"
-  - "**/node_modules/**"
-
-items:
-  - category: "Security"
-    rule: "No hardcoded secrets"
-    description: "Check for API keys, passwords, or tokens in code"
-    severity: "error"
-
-  - category: "Testing"
-    rule: "Public functions have tests"
-    description: "All public functions should have unit tests"
-    severity: "warning"
-
-  - category: "Build & CI"
-    rule: "Make run-guidelines passes"
-    description: "If the project has a Makefile with 'run-guidelines' target, it must pass"
-    severity: "error"
-```
-
-**Severity Levels:**
-- `error` - Critical issues that should block merging
-- `warning` - Important issues that should be addressed
-- `info` - Suggestions and best practices
-
-### Project-Level Checks
-
-The agent automatically detects and runs project-level checks:
-
-**`make run-guidelines`**: If your target project has a Makefile with a `run-guidelines` target, the agent will:
-- Automatically detect it
-- Run `make run-guidelines` in the target repository
-- Report failures as errors with full output
-
-Example `run-guidelines` target for your project:
-```makefile
-.PHONY: run-guidelines
-
-run-guidelines:
-	@echo "Running project checks..."
-	@cargo fmt --check
-	@cargo clippy -- -D warnings
-	@cargo test
-	@./scripts/custom-checks.sh
-	@echo "✅ All checks passed!"
-```
 
 ## 🎯 Usage
 
-### Basic Usage
+### Coverage Workflow
+
+Analyze test coverage and create GitHub issues for untested functions:
 
 ```bash
-# Analyze current directory
-devops-agent
-
-# Analyze specific repository
-devops-agent --repo-path /path/to/repo
-
-# Use custom checklist
-devops-agent --checklist my-rules.yaml
-
-# Output as markdown
-devops-agent --output markdown
-
-# Output as JSON
-devops-agent --output json
+./target/release/orchestrator coverage-workflow \
+  --repo-path ./repos/your-repo \
+  --create-issues
 ```
 
-### PR Mode (GitHub Actions)
+This will:
+1. Run `cargo llvm-cov --cobertura` on the target repo
+2. Parse coverage data to identify functions below 90% threshold
+3. Create GitHub issues with 'testing' label for each untested function
+
+### Test Workflow
+
+Process testing issues and create PRs with generated tests:
 
 ```bash
-# Only analyze changed files in PR
-devops-agent --pr-only
-
-# Post results as PR comment
-devops-agent --pr-only --post-comment
+./target/release/orchestrator test-workflow \
+  --repo-path ./repos/your-repo \
+  --max-todos 5
 ```
 
-## 🔧 GitHub Actions Setup
+This will:
+1. Fetch open issues with 'testing' label that don't have PRs
+2. For each issue:
+   - Generate appropriate tests based on function type
+   - Run tests to verify they pass
+   - Create a branch and commit the test file
+   - Push and open a pull request
 
-### Step 1: Add Secrets
+### Direct Todo-Resolver Usage
 
-In your GitHub repository, add the following secrets:
+Process a specific issue manually:
 
-1. Go to **Settings** → **Secrets and variables** → **Actions**
-2. Add `ANTHROPIC_API_KEY` with your Anthropic API key
-
-### Step 2: Copy Workflow File
-
-The workflow file is already included at `.github/workflows/devops-agent.yml`. It will:
-
-- ✅ Trigger on pull requests to main/master/develop
-- ✅ Build and run devops-agent
-- ✅ Analyze only changed files
-- ✅ Post results as PR comments automatically
-
-### Step 3: Customize (Optional)
-
-Edit `.github/workflows/devops-agent.yml` to:
-
-- Change trigger branches
-- Modify build options
-- Adjust when it runs
-
-## 📊 Output Examples
-
-### Console Output
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🤖 DevOps Agent ANALYSIS REPORT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📊 Files Analyzed: 5
-✅ Passed Checks:  12
-❌ Errors:         2
-⚠️  Warnings:       3
-ℹ️  Info:           1
-
-📄 src/main.rs
-─────────────────────────────────────────────────
-❌ [Security] No hardcoded secrets
-   Line: 42
-   Found what appears to be an API key on line 42
+```bash
+./agents/todo-resolver/target/release/todo-resolver \
+  --repo-path ./repos/your-repo \
+  --issue 123 \
+  --create-pr
 ```
 
-### Markdown Report
+## 🧪 Test Generation
 
-The agent generates nicely formatted markdown reports perfect for GitHub PR comments with:
-- Summary statistics
-- Categorized findings
-- Line numbers for issues
-- Severity indicators
+The todo-resolver intelligently generates tests based on function signatures:
+
+### PartialEq Implementations
+
+For types implementing `PartialEq`, generates tests that:
+- Verify identical instances are equal
+- Test each field independently to ensure all are checked
+- Create instances with actual field values (not placeholders)
+
+Example generated test:
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_literalnumber_eq_identical() {
+        let val1 = LiteralNumber { 
+            literal_expression: LiteralExpression::default(), 
+            literal: 2.0 
+        };
+        let val2 = LiteralNumber { 
+            literal_expression: LiteralExpression::default(), 
+            literal: 2.0 
+        };
+        assert_eq!(val1, val2, "Identical instances should be equal");
+    }
+
+    #[test]
+    fn test_literalnumber_ne_diff_literal() {
+        let val1 = LiteralNumber { 
+            literal_expression: LiteralExpression::default(), 
+            literal: 2.0 
+        };
+        let val2 = LiteralNumber { 
+            literal_expression: LiteralExpression::default(), 
+            literal: 3.0 
+        };
+        assert_ne!(val1, val2, "Instances with different literal should not be equal");
+    }
+}
+```
+
+### Constructor Functions
+
+Generates tests for `new()` and similar constructors with various inputs.
+
+### Clone Implementations
+
+Generates tests verifying cloned instances are equal and independent.
+
+### Generic Functions
+
+Generates tests covering happy path, edge cases, and error conditions.
+
+## 🔧 Configuration
+
+### Pre-commit Hook Optimization
+
+The system automatically configures target repositories to run fast pre-commit checks:
+
+```bash
+# In target repo: .git/hooks/pre-commit
+# Only runs formatting and linting, not full test suite
+cargo fmt
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+This ensures commits are fast while tests run in CI.
+
+### Coverage Threshold
+
+Coverage issues are created for functions with <90% coverage. This can be adjusted in `agents/coverage/src/main.rs`.
 
 ## 🛠️ Development
 
 ### Project Structure
 
 ```
-devops-agent/
+chore-bot/
 ├── src/
-│   ├── main.rs         # Entry point and CLI
-│   ├── config.rs       # Configuration loading
-│   ├── scanner.rs      # Repository file scanning
-│   ├── analyzer.rs     # Claude AI integration
-│   ├── reporter.rs     # Report generation
-│   └── github.rs       # GitHub API integration
-├── checklist.yaml      # Default checklist
-├── Cargo.toml          # Rust dependencies
-└── .github/
-    └── workflows/
-        └── devops-agent.yml  # GitHub Action workflow
+│   ├── main.rs           # Entry point
+│   ├── orchestrator.rs   # Workflow coordination
+│   └── subagent.rs       # Agent invocation helpers
+├── agents/
+│   ├── coverage/
+│   │   ├── src/
+│   │   │   ├── main.rs     # Coverage analysis CLI
+│   │   │   ├── analyzer.rs # llvm-cov runner & XML parser
+│   │   │   └── config.rs   # Configuration
+│   │   └── Cargo.toml
+│   └── todo-resolver/
+│       ├── src/
+│       │   ├── main.rs     # Test generation CLI
+│       │   └── resolver.rs # Test generation & PR creation
+│       └── Cargo.toml
+├── repos/                  # Target repositories
+│   └── your-repo/
+└── Cargo.toml
+```
+
+### Building Agents
+### Building Agents
+
+Each agent can be built independently:
+
+```bash
+# Build coverage agent
+cd agents/coverage
+cargo build --release
+
+# Build todo-resolver agent
+cd agents/todo-resolver
+cargo build --release
+
+# Build orchestrator
+cd ../..
+cargo build --release --bin orchestrator
 ```
 
 ### Running Tests
@@ -219,60 +238,120 @@ devops-agent/
 cargo test
 ```
 
-### Building for Release
+## 📊 Coverage Statistics
+
+Example output from syster LSP project:
+- **Total Lines**: 15,474
+- **Covered Lines**: 13,750 (88.9%)
+- **Uncovered**: 1,724 lines
+- **Issues Created**: 377 functions needing tests
+- **PRs Generated**: Automated with real, passing tests
+
+## 🔄 Workflow Examples
+
+### Complete Automation
+
+Run both workflows in sequence to go from 0% to high coverage:
 
 ```bash
-cargo build --release
+# Step 1: Identify gaps
+./target/release/orchestrator coverage-workflow \
+  --repo-path ./repos/syster \
+  --create-issues
+
+# Step 2: Generate tests (processes all untested functions)
+./target/release/orchestrator test-workflow \
+  --repo-path ./repos/syster \
+  --max-todos 100
 ```
 
-The binary will be at `target/release/devops-agent`.
+### Continuous Integration
 
-## 🎨 Customization Ideas
+Process a few issues at a time to spread work across multiple CI runs:
 
-- Add language-specific rules (e.g., Rust-specific patterns)
-- Create multiple checklist profiles (security-focused, documentation-focused, etc.)
-- Integrate with other CI/CD platforms (GitLab CI, Jenkins)
-- Add automatic issue creation for critical findings
-- Generate HTML reports
-- Track metrics over time
+```bash
+# Process 5 issues per run
+./target/release/orchestrator test-workflow \
+  --repo-path ./repos/syster \
+  --max-todos 5
+```
+
+The orchestrator automatically:
+- Skips issues that already have PRs
+- Only processes open issues with 'testing' label
+- Creates separate branches for each issue
+- Links PRs back to issues
+
+## 🎨 Customization
+
+### Adding New Test Generators
+
+To support new function types, edit `agents/todo-resolver/src/resolver.rs`:
+
+```rust
+pub fn generate_tests(repo_path: &Path, todo: &TodoItem) -> Result<String> {
+    let test_content = if function_name.contains("PartialEq") {
+        generate_partialeq_tests(&source_content, function_name)?
+    } else if function_name.contains("::new") {
+        generate_constructor_tests(&source_content, function_name)?
+    } else if function_name.contains("YourTrait") {
+        generate_your_trait_tests(&source_content, function_name)?
+    } else {
+        generate_generic_tests(&source_content, function_name)?
+    };
+    
+    Ok(test_content)
+}
+```
+
+### Adjusting Coverage Threshold
+
+Edit `agents/coverage/src/main.rs` to change the threshold:
+
+```rust
+// Current: functions with <90% coverage
+if coverage_rate < 0.90 {
+    // Create issue
+}
+```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Feel free to:
+Contributions welcome! Areas for improvement:
 
-- Add new checklist rules
-- Improve error handling
-- Add tests
-- Enhance reporting formats
-- Fix bugs
+- Support for more test patterns (async functions, error handling, etc.)
+- Integration with other coverage tools
+- Support for non-Rust languages
+- Enhanced test assertions and edge case generation
+- Batch PR creation optimizations
 
 ## 📝 License
 
-[MIT License](LICENSE) - feel free to use this in your projects!
+[MIT License](LICENSE)
 
 ## 🙋 FAQ
 
-**Q: How much does it cost to run?**
-A: Depends on your Anthropic API usage. Each file analysis uses Claude API tokens based on file size and checklist complexity.
+**Q: How accurate are the generated tests?**
+A: The tests are syntactically correct and test the actual function implementation. They focus on verifying behavior through assertions, not just compilation.
 
-**Q: Can I use this locally without GitHub Actions?**
-A: Yes! Just run the binary directly with your ANTHROPIC_API_KEY set.
+**Q: Can I review tests before they're merged?**
+A: Yes! All tests are submitted as PRs that go through your normal review process.
 
-**Q: Does it support other languages besides Rust?**
-A: Yes! The checklist can be configured for any text-based files (Python, JavaScript, Go, etc.).
+**Q: What happens if generated tests fail?**
+A: The todo-resolver runs tests and won't create a PR if they fail. This ensures only working tests are submitted.
 
-**Q: Can I run this on private repositories?**
-A: Yes, works with both public and private repos when using GitHub Actions.
+**Q: Does this work with private repositories?**
+A: Yes, requires GitHub CLI (`gh`) to be authenticated with appropriate permissions.
 
-**Q: How do I add custom rules?**
-A: Edit `checklist.yaml` and add new items under the `items` section.
+**Q: How long does it take to process issues?**
+A: Depends on project size. Most issues complete in 2-3 minutes including test generation, execution, and PR creation.
 
 ## 🔗 Resources
 
-- [Anthropic Claude API Documentation](https://docs.anthropic.com/)
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [Rust Programming Language](https://www.rust-lang.org/)
+- [cargo-llvm-cov Documentation](https://github.com/taiki-e/cargo-llvm-cov)
+- [GitHub CLI Documentation](https://cli.github.com/)
+- [Rust Testing Guide](https://doc.rust-lang.org/book/ch11-00-testing.html)
 
 ---
 
-Made with ❤️ using Rust and Claude AI
+Made with ❤️ using Rust - Automated testing for the win! 🚀
