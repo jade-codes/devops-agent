@@ -73,15 +73,18 @@ fn main() -> Result<()> {
     }
 
     // TDD Flow: Write tests first
-    if !args.skip_tests {
+    let test_file = if !args.skip_tests {
         println!("\n✅ Step 1: Writing tests...");
         let test_file = resolver::generate_tests(&args.repo_path, &todo_item)?;
         println!("   Created: {}", test_file);
 
         // Verify tests fail initially
         println!("\n🔴 Step 2: Running tests (should fail)...");
-        resolver::run_tests(&args.repo_path)?;
-    }
+        resolver::run_tests(&args.repo_path, Some(&test_file))?;
+        Some(test_file)
+    } else {
+        None
+    };
 
     // Implement the fix
     println!("\n🔨 Step 3: Implementing fix...");
@@ -91,7 +94,7 @@ fn main() -> Result<()> {
     // Verify tests pass
     if !args.skip_tests {
         println!("\n✅ Step 4: Running tests (should pass)...");
-        resolver::run_tests(&args.repo_path)?;
+        resolver::run_tests(&args.repo_path, test_file.as_deref())?;
     }
 
     // Create branch and commit

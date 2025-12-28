@@ -158,6 +158,7 @@ async fn run_test_workflow(repo_path: &Path, _threshold: u8, max_todos: u8) -> R
     for (idx, issue_num) in issues_to_resolve.enumerate() {
         println!("\n🔧 Step 2.{}: Resolving issue #{}...", idx + 1, issue_num);
 
+        // Create PR with targeted test runs (fast)
         let resolver_result = subagent::run_todo_resolver(repo_path, issue_num, true).await?;
 
         if resolver_result.success {

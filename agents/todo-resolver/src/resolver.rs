@@ -134,21 +134,46 @@ fn scan_todos(repo_path: &Path) -> Result<Vec<TodoItem>> {
     Ok(todos)
 }
 
-pub fn generate_tests(_repo_path: &Path, todo: &TodoItem) -> Result<String> {
+pub fn generate_tests(repo_path: &Path, todo: &TodoItem) -> Result<String> {
     // Generate test file based on TODO
     let test_file = format!("{}_test.rs", todo.file.replace(".rs", ""));
+    let test_path = repo_path.join(&test_file);
 
-    // In a real implementation, this would analyze the TODO and generate appropriate tests
-    println!("   (Test generation would create: {})", test_file);
+    // Create the test file with basic structure
+    if let Some(parent) = test_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let test_content = format!(
+        "#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn test_placeholder() {{\n        // TODO: Implement test for: {}\n        todo!()\n    }}\n}}\n",
+        todo.content
+    );
+
+    fs::write(&test_path, test_content)?;
 
     Ok(test_file)
 }
 
-pub fn run_tests(repo_path: &Path) -> Result<()> {
-    let output = Command::new("cargo")
-        .args(["test"])
-        .current_dir(repo_path)
-        .output()?;
+pub fn run_tests(repo_path: &Path, test_file: Option<&str>) -> Result<()> {
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(repo_path);
+
+    if let Some(file) = test_file {
+        // Run only tests in the specific file
+        // Extract the module path from the file path
+        let module_path = file
+            .replace(".rs", "")
+            .replace("_test", "")
+            .replace("/", "::")
+            .replace("crates::", "");
+
+        println!("   Running tests in module: {}", module_path);
+        cmd.args(["test", "--lib", "--", &module_path]);
+    } else {
+        cmd.args(["test"]);
+    }
+
+    let output = cmd.output()?;
 
     if !output.status.success() {
         println!("   Tests failed (expected for TDD)");
