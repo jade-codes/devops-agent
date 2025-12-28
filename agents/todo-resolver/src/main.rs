@@ -105,7 +105,7 @@ fn main() -> Result<()> {
     // Create PR if requested
     if args.create_pr {
         println!("\n🚀 Step 6: Creating pull request...");
-        let pr_url = resolver::create_pr_request(&todo_item, &branch)?;
+        let pr_url = resolver::create_pr_request(&args.repo_path, &todo_item, &branch)?;
         println!("   PR: {}", pr_url);
     }
 

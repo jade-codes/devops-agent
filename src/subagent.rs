@@ -20,16 +20,10 @@ pub struct AgentResponse {
 
 /// Run a subagent and return structured results
 pub async fn run_subagent(request: AgentRequest) -> Result<AgentResponse> {
-    // Map agent names to their actual binary names
-    let binary_name = match request.agent.as_str() {
-        "todo-resolver" => "todo-resolver-bot",
-        _ => &request.agent,
-    };
-
-    // Use absolute path to the agent binary
+    // Use absolute path to the agent binary (binary name = agent name)
     let agent_path = std::env::current_dir()?.join(format!(
         "agents/{}/target/release/{}",
-        request.agent, binary_name
+        request.agent, request.agent
     ));
 
     let mut cmd = Command::new(&agent_path);
@@ -98,7 +92,7 @@ pub async fn run_todo_resolver(
 ) -> Result<AgentResponse> {
     let mut args = vec![
         "--repo-path".to_string(),
-        repo_path.display().to_string(),
+        ".".to_string(), // Use . since we set working_dir to repo_path
         "--issue".to_string(),
         issue_number.to_string(),
     ];

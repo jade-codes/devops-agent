@@ -366,16 +366,19 @@ async fn run_coverage_workflow(repo_path: &Path, threshold: u8) -> Result<()> {
     Ok(())
 }
 
-/// Helper to get coverage issues from GitHub
+/// Helper to get coverage issues from GitHub (excluding those with linked PRs)
 fn get_coverage_issues(repo_path: &Path) -> Result<Vec<u32>> {
     use std::process::Command;
 
+    // Get all open testing issues
     let output = Command::new("gh")
         .args([
             "issue",
             "list",
             "--label",
             "testing",
+            "--state",
+            "open",
             "--json",
             "number",
             "--jq",
@@ -385,12 +388,39 @@ fn get_coverage_issues(repo_path: &Path) -> Result<Vec<u32>> {
         .output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let issues: Vec<u32> = stdout
+    let all_issues: Vec<u32> = stdout
         .lines()
         .filter_map(|line| line.trim().parse().ok())
         .collect();
 
-    Ok(issues)
+    // Get all open PRs to check which issues already have PRs
+    let pr_output = Command::new("gh")
+        .args([
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--json",
+            "number",
+            "--jq",
+            ".[].number",
+        ])
+        .current_dir(repo_path)
+        .output()?;
+
+    let pr_stdout = String::from_utf8_lossy(&pr_output.stdout);
+    let pr_numbers: std::collections::HashSet<u32> = pr_stdout
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect();
+
+    // Filter out issues that have matching PR numbers (assuming PR number == issue number)
+    let issues_without_prs: Vec<u32> = all_issues
+        .into_iter()
+        .filter(|issue_num| !pr_numbers.contains(issue_num))
+        .collect();
+
+    Ok(issues_without_prs)
 }
 
 /// Helper to get bug issues from GitHub
