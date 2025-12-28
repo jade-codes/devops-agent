@@ -41,10 +41,10 @@ impl GitWorkflow {
             "checkout",
             "-b",
             branch_name,
-            &format!("origin/{}", main_branch),
+            &format!("origin/{main_branch}"),
         ])?;
 
-        println!("✅ Created and checked out branch: {}", branch_name);
+        println!("✅ Created and checked out branch: {branch_name}");
         Ok(())
     }
 
@@ -58,7 +58,7 @@ impl GitWorkflow {
 
         // Get commit SHA
         let sha = self.get_latest_commit_sha()?;
-        println!("✅ Committed changes: {}", sha);
+        println!("✅ Committed changes: {sha}");
 
         Ok(sha)
     }
@@ -66,7 +66,7 @@ impl GitWorkflow {
     /// Pushes current branch to origin
     pub fn push_branch(&self, branch_name: &str) -> Result<()> {
         self.run_git(&["push", "-u", "origin", branch_name])?;
-        println!("✅ Pushed branch to origin: {}", branch_name);
+        println!("✅ Pushed branch to origin: {branch_name}");
         Ok(())
     }
 
@@ -111,7 +111,7 @@ impl GitWorkflow {
 
         let response = client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .header("User-Agent", "devops-agent")
             .header("Accept", "application/vnd.github.v3+json")
             .json(&pr_request)
@@ -122,7 +122,7 @@ impl GitWorkflow {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("GitHub API error {}: {}", status, body);
+            anyhow::bail!("GitHub API error {status}: {body}");
         }
 
         let pr: PRResponse = response.json().await?;
@@ -139,7 +139,7 @@ impl GitWorkflow {
         pr_title: &str,
         pr_body: &str,
     ) -> Result<WorkflowResult> {
-        let branch_name = format!("devops-agent/fix-{}", issue_id);
+        let branch_name = format!("devops-agent/fix-{issue_id}");
 
         // Create branch
         self.create_branch(&branch_name)?;
@@ -169,11 +169,11 @@ impl GitWorkflow {
             .args(args)
             .current_dir(&self.repo_path)
             .output()
-            .context(format!("Failed to run git {:?}", args))?;
+            .context(format!("Failed to run git {args:?}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Git command failed: {}", stderr);
+            anyhow::bail!("Git command failed: {stderr}");
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -209,7 +209,7 @@ impl GitWorkflow {
         };
 
         if parts.len() < 2 {
-            anyhow::bail!("Could not parse repository URL: {}", remote_url);
+            anyhow::bail!("Could not parse repository URL: {remote_url}");
         }
 
         let repo_part = parts[1].trim_end_matches(".git");

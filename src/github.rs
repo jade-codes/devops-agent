@@ -20,10 +20,7 @@ pub async fn post_pr_comment(report: &str) -> Result<()> {
         .context("Could not determine PR number")?;
 
     let client = Client::new();
-    let url = format!(
-        "https://api.github.com/repos/{}/issues/{}/comments",
-        repo, pr_number
-    );
+    let url = format!("https://api.github.com/repos/{repo}/issues/{pr_number}/comments");
 
     let comment = GitHubComment {
         body: report.to_string(),
@@ -31,7 +28,7 @@ pub async fn post_pr_comment(report: &str) -> Result<()> {
 
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", github_token))
+        .header("Authorization", format!("Bearer {github_token}"))
         .header("User-Agent", "devops-agent")
         .header("Accept", "application/vnd.github.v3+json")
         .json(&comment)
@@ -42,7 +39,7 @@ pub async fn post_pr_comment(report: &str) -> Result<()> {
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("GitHub API error {}: {}", status, body);
+        anyhow::bail!("GitHub API error {status}: {body}");
     }
 
     Ok(())
@@ -58,8 +55,5 @@ fn extract_pr_from_github_ref() -> Result<String> {
         }
     }
 
-    anyhow::bail!(
-        "Could not extract PR number from GITHUB_REF: {}",
-        github_ref
-    )
+    anyhow::bail!("Could not extract PR number from GITHUB_REF: {github_ref}")
 }

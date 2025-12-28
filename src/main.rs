@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     // Output report
     match args.output.as_str() {
         "json" => println!("{}", serde_json::to_string_pretty(&report)?),
-        _ => println!("\n{}", report),
+        _ => println!("\n{report}"),
     }
 
     // Post to GitHub if requested

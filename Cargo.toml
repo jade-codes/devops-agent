@@ -23,3 +23,7 @@ path = "src/main.rs"
 [[bin]]
 name = "devops-agent-mcp"
 path = "src/mcp_server.rs"
+
+[[bin]]
+name = "orchestrator"
+path = "src/orchestrator.rs"

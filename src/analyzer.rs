@@ -101,7 +101,7 @@ async fn analyze_single_file(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(anyhow!("Claude API error {}: {}", status, body));
+        return Err(anyhow!("Claude API error {status}: {body}"));
     }
 
     let claude_response: ClaudeResponse = response
@@ -233,7 +233,7 @@ fn check_run_guidelines(
             let message = if passed {
                 "make run-guidelines executed successfully".to_string()
             } else {
-                format!("make run-guidelines failed:\n{}", output)
+                format!("make run-guidelines failed:\n{output}")
             };
 
             findings.push(Finding {

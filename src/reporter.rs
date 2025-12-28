@@ -120,7 +120,7 @@ fn generate_markdown_report(results: &[AnalysisResult], summary: &Summary) -> Re
                     ));
 
                     if let Some(line) = finding.line_number {
-                        md.push_str(&format!("   - Line: {}\n", line));
+                        md.push_str(&format!("   - Line: {line}\n"));
                     }
 
                     md.push_str(&format!("   - {}\n\n", finding.message));
@@ -173,7 +173,7 @@ fn generate_console_report(results: &[AnalysisResult], summary: &Summary) -> Res
                     ));
 
                     if let Some(line) = finding.line_number {
-                        output.push_str(&format!("   Line: {}\n", line));
+                        output.push_str(&format!("   Line: {line}\n"));
                     }
 
                     output.push_str(&format!("   {}\n\n", finding.message));

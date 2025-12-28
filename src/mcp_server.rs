@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
         let request: JsonRpcRequest = match serde_json::from_str(&line) {
             Ok(req) => req,
             Err(e) => {
-                eprintln!("Failed to parse request: {}", e);
+                eprintln!("Failed to parse request: {e}");
                 continue;
             }
         };
@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
         let response = handle_request(request).await;
         let response_str = serde_json::to_string(&response)?;
 
-        writeln!(stdout, "{}", response_str)?;
+        writeln!(stdout, "{response_str}")?;
         stdout.flush()?;
     }
 
@@ -270,7 +270,7 @@ async fn handle_tool_call(id: Option<Value>, params: Option<Value>) -> JsonRpcRe
         "commit_and_push" => tool_commit_and_push(arguments).await,
         "create_pull_request" => tool_create_pull_request(arguments).await,
         "complete_workflow" => tool_complete_workflow(arguments).await,
-        _ => Err(anyhow::anyhow!("Unknown tool: {}", tool_name)),
+        _ => Err(anyhow::anyhow!("Unknown tool: {tool_name}")),
     };
 
     match result {
@@ -291,7 +291,7 @@ async fn handle_tool_call(id: Option<Value>, params: Option<Value>) -> JsonRpcRe
             result: None,
             error: Some(JsonRpcError {
                 code: -32000,
-                message: format!("Tool execution failed: {}", e),
+                message: format!("Tool execution failed: {e}"),
             }),
         },
     }
@@ -309,7 +309,7 @@ async fn tool_scan_repository(args: &Value) -> Result<String> {
     let config = config::load_checklist(checklist_path)?;
     let files = scanner::scan_repository(repo_path, &config, false)?;
 
-    let mut output = format!("📊 Scanned Repository\n\n");
+    let mut output = "📊 Scanned Repository\n\n".to_string();
     output.push_str(&format!("Found {} files to analyze:\n\n", files.len()));
 
     for file in &files {
@@ -344,7 +344,7 @@ async fn tool_check_guidelines(args: &Value) -> Result<String> {
     }
 
     if let Some(output) = &context.run_guidelines_output {
-        Ok(format!("🔧 Make run-guidelines Results:\n\n{}", output))
+        Ok(format!("🔧 Make run-guidelines Results:\n\n{output}"))
     } else {
         Ok("⚠️ run-guidelines target found but not executed".to_string())
     }
@@ -359,13 +359,12 @@ async fn tool_create_fix_branch(args: &Value) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("issue_id required"))?;
 
     let workflow = git_workflow::GitWorkflow::new(repo_path.to_string());
-    let branch_name = format!("devops-agent/fix-{}", issue_id);
+    let branch_name = format!("devops-agent/fix-{issue_id}");
 
     workflow.create_branch(&branch_name)?;
 
     Ok(format!(
-        "✅ Created and checked out branch: {}\n\nYou can now make changes to fix the issue.",
-        branch_name
+        "✅ Created and checked out branch: {branch_name}\n\nYou can now make changes to fix the issue."
     ))
 }
 
@@ -386,8 +385,7 @@ async fn tool_commit_and_push(args: &Value) -> Result<String> {
     workflow.push_branch(branch_name)?;
 
     Ok(format!(
-        "✅ Committed and pushed changes\n\nCommit: {}\nBranch: {}",
-        commit_sha, branch_name
+        "✅ Committed and pushed changes\n\nCommit: {commit_sha}\nBranch: {branch_name}"
     ))
 }
 
@@ -411,8 +409,7 @@ async fn tool_create_pull_request(args: &Value) -> Result<String> {
         .await?;
 
     Ok(format!(
-        "✅ Created Pull Request\n\nPR #{}: {}",
-        pr_number, pr_url
+        "✅ Created Pull Request\n\nPR #{pr_number}: {pr_url}"
     ))
 }
 

@@ -22,7 +22,7 @@ pub struct ChecklistItem {
 
 pub fn load_checklist(path: &Path) -> Result<ChecklistConfig> {
     let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read checklist file: {:?}", path))?;
+        .with_context(|| format!("Failed to read checklist file: {path:?}"))?;
     
     let config: ChecklistConfig = serde_yaml::from_str(&content)
         .with_context(|| "Failed to parse checklist YAML")?;
