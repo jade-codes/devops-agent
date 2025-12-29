@@ -72,44 +72,10 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // TDD Flow: Write tests first
-    let test_file = if !args.skip_tests {
-        println!("\n✅ Step 1: Writing tests...");
-        let test_file = resolver::generate_tests(&args.repo_path, &todo_item)?;
-        println!("   Created: {}", test_file);
+    // Test generation now happens via GitHub Copilot subagent
+    println!("\n⚠️  todo-resolver no longer generates tests automatically.");
+    println!("   Use GitHub Copilot as the orchestrator to generate tests intelligently.");
+    println!("   The todo-resolver binary now only handles PR creation for existing test files.");
 
-        // Verify tests fail initially
-        println!("\n🔴 Step 2: Running tests (should fail)...");
-        resolver::run_tests(&args.repo_path, Some(&test_file))?;
-        Some(test_file)
-    } else {
-        None
-    };
-
-    // Implement the fix
-    println!("\n🔨 Step 3: Implementing fix...");
-    let changes = resolver::implement_fix(&args.repo_path, &todo_item)?;
-    println!("   Modified {} file(s)", changes.len());
-
-    // Verify tests pass
-    if !args.skip_tests {
-        println!("\n✅ Step 4: Running tests (should pass)...");
-        resolver::run_tests(&args.repo_path, test_file.as_deref())?;
-    }
-
-    // Create branch and commit
-    println!("\n📦 Step 5: Committing changes...");
-    let branch = resolver::commit_changes(&args.repo_path, &todo_item, &changes)?;
-    println!("   Branch: {}", branch);
-
-    // Create PR if requested
-    if args.create_pr {
-        println!("\n🚀 Step 6: Creating pull request...");
-        let pr_url = resolver::create_pr_request(&args.repo_path, &todo_item, &branch)?;
-        println!("   PR: {}", pr_url);
-    }
-
-    println!("\n✅ TODO resolved successfully!");
-
-    Ok(())
+    anyhow::bail!("Test generation requires GitHub Copilot subagent - cannot run standalone");
 }

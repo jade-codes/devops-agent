@@ -1,8 +1,7 @@
-mod subagent;
-
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Parser, Debug)]
 #[command(name = "orchestrator")]
@@ -152,20 +151,69 @@ async fn run_test_workflow(repo_path: &Path, _threshold: u8, max_todos: u8) -> R
     }
 
     println!("✅ Found {} testing issues\n", issues.len());
+
     let issues_to_resolve = issues.into_iter().take(max_todos as usize);
 
-    // Step 2: Resolve each issue
+    // Step 2: Spawn agent task for each issue
     for (idx, issue_num) in issues_to_resolve.enumerate() {
-        println!("\n🔧 Step 2.{}: Resolving issue #{}...", idx + 1, issue_num);
+        println!(
+            "\n🤖 Step 2.{}: Spawning agent for issue #{}...",
+            idx + 1,
+            issue_num
+        );
 
-        // Create PR with targeted test runs (fast)
-        let resolver_result = subagent::run_todo_resolver(repo_path, issue_num, true).await?;
+        // Fetch issue details to create task description
+        let issue_details = Command::new("gh")
+            .args([
+                "issue",
+                "view",
+                &issue_num.to_string(),
+                "--json",
+                "title,body",
+            ])
+            .current_dir(repo_path)
+            .output()?;
 
-        if resolver_result.success {
-            println!("✅ Issue #{issue_num} resolved");
+        if !issue_details.status.success() {
+            println!("⚠️  Failed to fetch issue #{}: skipping", issue_num);
+            continue;
+        }
+
+        let issue_json: serde_json::Value =
+            serde_json::from_slice(&issue_details.stdout).unwrap_or_default();
+        let title = issue_json["title"].as_str().unwrap_or("");
+
+        // Create agent task to generate tests for this issue
+        let task_description = format!(
+            "Generate comprehensive tests for the function mentioned in issue #{}.
+
+Issue: {}
+
+Requirements:
+- Read the source code to understand the function
+- Generate working, compilable tests (no TODO comments or placeholders)
+- Create tests in a separate test file (e.g., filename_test.rs)
+- Ensure test file is properly included in the module
+- Run cargo test to ensure they compile and pass
+- Commit changes with message: 'test: Add tests for <function> (closes #{})'
+- Create a pull request
+
+If the function cannot be tested without significant setup, skip it and report why.",
+            issue_num, title, issue_num
+        );
+
+        // Invoke GitHub Copilot agent via gh CLI
+        println!("   Spawning agent task...");
+        let agent_result = Command::new("gh")
+            .args(["agent-task", "create", &task_description])
+            .current_dir(repo_path)
+            .output()?;
+
+        if agent_result.status.success() {
+            println!("✅ Agent task spawned for issue #{}", issue_num);
         } else {
-            println!("⚠️  Failed to resolve issue #{issue_num}");
-            println!("{}", resolver_result.stderr);
+            println!("⚠️  Failed to spawn agent for issue #{}", issue_num);
+            println!("{}", String::from_utf8_lossy(&agent_result.stderr));
         }
     }
 
@@ -173,114 +221,199 @@ async fn run_test_workflow(repo_path: &Path, _threshold: u8, max_todos: u8) -> R
     Ok(())
 }
 
-/// Feature Workflow: Review architecture → Scan TODOs → Implement feature
+/// Feature Workflow: Implement feature using agent task
 async fn run_feature_workflow(repo_path: &Path, issue: u32) -> Result<()> {
     println!("🚀 Starting Feature Workflow");
     println!("===========================\n");
 
-    // Step 1: Architecture review
-    println!("🏗️  Step 1: Reviewing architecture...");
-    let arch_result = subagent::run_architecture_reviewer(repo_path).await?;
-    println!("{}", arch_result.stdout);
+    // Fetch issue details
+    println!("📋 Fetching issue details...");
+    let issue_details = Command::new("gh")
+        .args(["issue", "view", &issue.to_string(), "--json", "title,body"])
+        .current_dir(repo_path)
+        .output()?;
 
-    // Step 2: Scan for related TODOs
-    println!("\n📝 Step 2: Scanning for TODOs...");
-    let todo_result = subagent::run_todo_scanner(repo_path, false).await?;
-    println!("{}", todo_result.stdout);
-
-    // Step 3: Implement feature
-    println!("\n💻 Step 3: Implementing feature...");
-    let feature_result = subagent::run_feature_implementer(repo_path, issue).await?;
-
-    if feature_result.success {
-        println!("✅ Feature implementation complete");
-        println!("{}", feature_result.stdout);
-    } else {
-        println!("❌ Feature implementation failed:");
-        println!("{}", feature_result.stderr);
+    if !issue_details.status.success() {
+        anyhow::bail!("Failed to fetch issue #{}", issue);
     }
 
-    println!("\n✅ Feature workflow complete!");
+    let issue_json: serde_json::Value =
+        serde_json::from_slice(&issue_details.stdout).unwrap_or_default();
+    let title = issue_json["title"].as_str().unwrap_or("");
+    let body = issue_json["body"].as_str().unwrap_or("");
+
+    // Create comprehensive task description for the agent
+    let task_description = format!(
+        "Implement the feature described in issue #{}.
+
+Issue: {}
+
+Description:
+{}
+
+Requirements:
+1. Review the architecture and codebase
+2. Scan for related TODOs that might be relevant
+3. Implement the feature following best practices
+4. Add comprehensive tests
+5. Run all tests to ensure they pass
+6. Commit changes with clear, descriptive commit message
+7. Create a pull request referencing issue #{}
+
+Please provide a complete, working implementation.",
+        issue, title, body, issue
+    );
+
+    // Spawn agent task
+    println!("\n🤖 Spawning agent to implement feature...");
+    let agent_result = Command::new("gh")
+        .args(["agent-task", "create", &task_description])
+        .current_dir(repo_path)
+        .output()?;
+
+    if agent_result.status.success() {
+        println!("\n✅ Agent task spawned for issue #{}", issue);
+        println!("{}", String::from_utf8_lossy(&agent_result.stdout));
+    } else {
+        println!("\n❌ Failed to spawn agent:");
+        println!("{}", String::from_utf8_lossy(&agent_result.stderr));
+        anyhow::bail!("Agent task creation failed");
+    }
+
     Ok(())
 }
 
-/// Quality Workflow: Architecture review → Coverage analysis → TODO scan
+/// Quality Workflow: Run coverage and create GitHub agent tasks for improvements
 async fn run_quality_workflow(repo_path: &Path) -> Result<()> {
     println!("🔍 Starting Quality Workflow");
     println!("==========================\n");
 
-    // Step 1: Architecture review
-    println!("🏗️  Step 1: Architecture review...");
-    let arch_result = subagent::run_architecture_reviewer(repo_path).await?;
-    println!("{}", arch_result.stdout);
+    // Use the coverage agent (still useful for analysis)
+    println!("📊 Running coverage analysis...");
+    let coverage_result = Command::new("./agents/coverage/target/release/coverage")
+        .args([
+            "--repo-path",
+            repo_path.display().to_string().as_str(),
+            "--threshold",
+            "80",
+        ])
+        .output()?;
 
-    // Step 2: Coverage analysis
-    println!("\n📊 Step 2: Coverage analysis...");
-    let coverage_result = subagent::run_coverage_agent(repo_path, 80, false).await?;
-    println!("{}", coverage_result.stdout);
+    println!("{}", String::from_utf8_lossy(&coverage_result.stdout));
 
-    // Step 3: TODO scan
-    println!("\n📝 Step 3: TODO scan...");
-    let todo_result = subagent::run_todo_scanner(repo_path, false).await?;
-    println!("{}", todo_result.stdout);
+    if !coverage_result.status.success() {
+        println!("⚠️  Coverage analysis had issues");
+        println!("{}", String::from_utf8_lossy(&coverage_result.stderr));
+    }
 
     println!("\n✅ Quality workflow complete!");
+    println!("   Run 'test-workflow' to generate tests for low-coverage functions");
     Ok(())
 }
 
-/// Custom workflow
-async fn run_custom_workflow(repo_path: &Path, agents: &str) -> Result<()> {
+/// Custom workflow - spawn an agent task with custom instructions
+async fn run_custom_workflow(repo_path: &Path, task_description: &str) -> Result<()> {
     println!("🎯 Starting Custom Workflow");
     println!("==========================\n");
 
-    for agent in agents.split(',') {
-        let agent = agent.trim();
-        println!("🤖 Running {agent}...");
+    println!("🤖 Spawning custom agent task...");
+    let agent_result = Command::new("gh")
+        .args(["agent-task", "create", task_description])
+        .current_dir(repo_path)
+        .output()?;
 
-        let result = subagent::run_subagent(subagent::AgentRequest {
-            agent: agent.to_string(),
-            args: vec!["--repo-path".to_string(), repo_path.display().to_string()],
-            working_dir: None,
-        })
-        .await?;
-
-        println!("{}", result.stdout);
-
-        if !result.success {
-            println!("⚠️  {agent} failed");
-        }
+    if agent_result.status.success() {
+        println!("\n✅ Agent task spawned");
+        println!("{}", String::from_utf8_lossy(&agent_result.stdout));
+    } else {
+        println!("\n❌ Failed to spawn agent:");
+        println!("{}", String::from_utf8_lossy(&agent_result.stderr));
+        anyhow::bail!("Agent task failed");
     }
 
-    println!("\n✅ Custom workflow complete!");
     Ok(())
 }
 
-/// Bug Workflow: Find bugs → Fix them
+/// Bug Workflow: Spawn agent tasks to fix bugs
 async fn run_bug_workflow(repo_path: &Path, max_bugs: u8) -> Result<()> {
     println!("🐛 Starting Bug Workflow");
     println!("=====================\n");
 
-    // Step 1: Scan for TODOs marked as bugs
-    println!("🔍 Step 1: Scanning for bugs...");
-    let todo_result = subagent::run_todo_scanner(repo_path, true).await?;
-    println!("{}", todo_result.stdout);
-
-    // Step 2: Get bug issues
-    println!("\n📋 Step 2: Fetching bug issues...");
+    // Get bug issues from GitHub
+    println!("📋 Fetching bug issues...");
     let issues = get_bug_issues(repo_path)?;
+
+    if issues.is_empty() {
+        println!("⚠️  No bug issues found");
+        return Ok(());
+    }
+
+    println!("✅ Found {} bug issues\n", issues.len());
+
     let issues_to_resolve = issues.into_iter().take(max_bugs as usize);
 
-    // Step 3: Fix each bug
+    // Spawn agent task for each bug
     for (idx, issue_num) in issues_to_resolve.enumerate() {
-        println!("\n🔧 Step 3.{}: Fixing bug #{}...", idx + 1, issue_num);
+        println!(
+            "\n🤖 Step {}: Spawning agent for issue #{}...",
+            idx + 1,
+            issue_num
+        );
 
-        let resolver_result = subagent::run_todo_resolver(repo_path, issue_num, true).await?;
+        // Fetch issue details
+        let issue_details = Command::new("gh")
+            .args([
+                "issue",
+                "view",
+                &issue_num.to_string(),
+                "--json",
+                "title,body",
+            ])
+            .current_dir(repo_path)
+            .output()?;
 
-        if resolver_result.success {
-            println!("✅ Bug #{issue_num} fixed");
+        if !issue_details.status.success() {
+            println!("⚠️  Failed to fetch issue #{}: skipping", issue_num);
+            continue;
+        }
+
+        let issue_json: serde_json::Value =
+            serde_json::from_slice(&issue_details.stdout).unwrap_or_default();
+        let title = issue_json["title"].as_str().unwrap_or("");
+        let body = issue_json["body"].as_str().unwrap_or("");
+
+        // Create agent task to fix the bug
+        let task_description = format!(
+            "Fix the bug described in issue #{}.
+
+Issue: {}
+
+Description:
+{}
+
+Requirements:
+- Analyze the bug and identify root cause
+- Implement a fix
+- Add tests to verify the fix and prevent regression
+- Run all tests to ensure nothing breaks
+- Commit with message: 'fix: <description> (closes #{})'
+- Create a pull request
+
+Please provide a complete solution.",
+            issue_num, title, body, issue_num
+        );
+
+        println!("   Spawning agent task...");
+        let agent_result = Command::new("gh")
+            .args(["agent-task", "create", &task_description])
+            .current_dir(repo_path)
+            .output()?;
+
+        if agent_result.status.success() {
+            println!("✅ Agent task spawned for issue #{}", issue_num);
         } else {
-            println!("⚠️  Failed to fix bug #{issue_num}");
-            println!("{}", resolver_result.stderr);
+            println!("⚠️  Failed to spawn agent for issue #{}", issue_num);
+            println!("{}", String::from_utf8_lossy(&agent_result.stderr));
         }
     }
 
@@ -288,37 +421,84 @@ async fn run_bug_workflow(repo_path: &Path, max_bugs: u8) -> Result<()> {
     Ok(())
 }
 
-/// Chore Workflow: Find tech debt → Resolve it
+/// Chore Workflow: Spawn agent tasks for tech debt and chores
 async fn run_chore_workflow(repo_path: &Path, max_chores: u8) -> Result<()> {
     println!("🧹 Starting Chore Workflow");
     println!("========================\n");
 
-    // Step 1: Architecture review for tech debt
-    println!("🏗️  Step 1: Reviewing architecture for tech debt...");
-    let arch_result = subagent::run_architecture_reviewer(repo_path).await?;
-    println!("{}", arch_result.stdout);
-
-    // Step 2: Scan for chore TODOs
-    println!("\n📝 Step 2: Scanning for chores...");
-    let todo_result = subagent::run_todo_scanner(repo_path, true).await?;
-    println!("{}", todo_result.stdout);
-
-    // Step 3: Get chore issues
-    println!("\n📋 Step 3: Fetching chore issues...");
+    // Get chore issues from GitHub
+    println!("📋 Fetching chore issues...");
     let issues = get_chore_issues(repo_path)?;
-    let issues_to_resolve = issues.into_iter().take(max_chores as usize);
 
-    // Step 4: Resolve each chore
-    for (idx, issue_num) in issues_to_resolve.enumerate() {
-        println!("\n🔧 Step 4.{}: Resolving chore #{}...", idx + 1, issue_num);
+    if issues.is_empty() {
+        println!("⚠️  No chore issues found");
+        return Ok(());
+    }
 
-        let resolver_result = subagent::run_todo_resolver(repo_path, issue_num, true).await?;
+    println!("✅ Found {} chore issues\n", issues.len());
 
-        if resolver_result.success {
-            println!("✅ Chore #{issue_num} resolved");
+    // Spawn agent task for each chore
+    for (idx, issue_num) in issues.into_iter().take(max_chores as usize).enumerate() {
+        println!(
+            "\n🤖 Step {}: Spawning agent for chore #{}...",
+            idx + 1,
+            issue_num
+        );
+
+        // Fetch issue details
+        let issue_details = Command::new("gh")
+            .args([
+                "issue",
+                "view",
+                &issue_num.to_string(),
+                "--json",
+                "title,body",
+            ])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !issue_details.status.success() {
+            println!("⚠️  Failed to fetch issue #{}: skipping", issue_num);
+            continue;
+        }
+
+        let issue_json: serde_json::Value =
+            serde_json::from_slice(&issue_details.stdout).unwrap_or_default();
+        let title = issue_json["title"].as_str().unwrap_or("");
+        let body = issue_json["body"].as_str().unwrap_or("");
+
+        // Create agent task for the chore
+        let task_description = format!(
+            "Complete the chore/tech debt task described in issue #{}.
+
+Issue: {}
+
+Description:
+{}
+
+Requirements:
+- Implement the improvement or refactoring
+- Ensure code quality and maintainability
+- Add or update tests as needed
+- Run all tests to verify
+- Commit with message: 'chore: <description> (closes #{})'
+- Create a pull request
+
+Please provide a complete solution.",
+            issue_num, title, body, issue_num
+        );
+
+        println!("   Launching agent task...");
+        let agent_result = Command::new("gh")
+            .args(["agent-task", "create", &task_description])
+            .current_dir(repo_path)
+            .output()?;
+
+        if agent_result.status.success() {
+            println!("✅ Agent task spawned for chore #{}", issue_num);
         } else {
-            println!("⚠️  Failed to resolve chore #{issue_num}");
-            println!("{}", resolver_result.stderr);
+            println!("⚠️  Failed to spawn agent for chore #{}", issue_num);
+            println!("{}", String::from_utf8_lossy(&agent_result.stderr));
         }
     }
 
@@ -326,43 +506,36 @@ async fn run_chore_workflow(repo_path: &Path, max_chores: u8) -> Result<()> {
     Ok(())
 }
 
-/// Coverage Workflow: Analyze coverage and create issues
+/// Coverage Workflow: Analyze coverage and create issues for GitHub agents
 async fn run_coverage_workflow(repo_path: &Path, threshold: u8) -> Result<()> {
     println!("📊 Starting Coverage Workflow");
     println!("============================\n");
 
-    // Step 1: Run coverage analysis and create issues
+    // Run coverage analysis and create issues
     println!(
-        "🔍 Step 1: Running coverage analysis with threshold {}%...",
+        "🔍 Running coverage analysis with threshold {}%...",
         threshold
     );
-    let coverage_result = subagent::run_coverage_agent(repo_path, threshold, true).await?;
+    let coverage_result = Command::new("./agents/coverage/target/release/coverage")
+        .args([
+            "--repo-path",
+            repo_path.display().to_string().as_str(),
+            "--threshold",
+            &threshold.to_string(),
+            "--create-issues",
+        ])
+        .output()?;
 
-    if !coverage_result.success {
+    println!("{}", String::from_utf8_lossy(&coverage_result.stdout));
+
+    if !coverage_result.status.success() {
         println!("❌ Coverage analysis failed:");
-        println!("{}", coverage_result.stderr);
+        println!("{}", String::from_utf8_lossy(&coverage_result.stderr));
         return Ok(());
     }
 
-    println!("✅ Coverage analysis complete\n");
-    println!("{}", coverage_result.stdout);
-
-    // Step 2: Count created issues
-    println!("\n📋 Step 2: Checking created issues...");
-    let issues = get_coverage_issues(repo_path)?;
-    println!(
-        "✅ Found {} testing issues ready to resolve\n",
-        issues.len()
-    );
-
-    println!("💡 Next steps:");
-    println!("   Run test workflow to implement tests:");
-    println!(
-        "   orchestrator test-workflow --repo-path {} --max-todos 5",
-        repo_path.display()
-    );
-
-    println!("\n✅ Coverage workflow complete!");
+    println!("\n✅ Coverage analysis complete");
+    println!("   Run 'test-workflow' to spawn agents that generate tests");
     Ok(())
 }
 
