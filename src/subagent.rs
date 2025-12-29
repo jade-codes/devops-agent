@@ -145,51 +145,26 @@ pub fn group_by_module(
 }
 
 /// Categorize an issue title into a module name based on function path
+/// Extracts last 2 segments from Rust paths like `foo::bar::baz` -> `bar-baz`
 fn categorize_by_path(title: &str) -> String {
-    let patterns = [
-        ("syster_lsp::server::core", "lsp-server-core"),
-        ("syster_lsp::server::helpers", "lsp-helpers"),
-        ("syster_lsp::ServerState", "lsp-server-state"),
-        ("syster::semantic::symbol_table", "symbol-table"),
-        ("syster::semantic::graphs::symmetric", "symmetric-graph"),
-        ("syster::semantic::graphs::one_to_one", "one-to-one-graph"),
-        ("syster::semantic::graphs::one_to_many", "one-to-many-graph"),
-        ("syster::semantic::workspace::core", "workspace-core"),
-        ("syster::semantic::workspace::file", "workspace-file"),
-        (
-            "syster::semantic::adapters::kerml::selection",
-            "kerml-selection",
-        ),
-        ("syster::semantic::adapters::kerml::inlay", "kerml-inlay"),
-        (
-            "syster::semantic::adapters::kerml::folding",
-            "kerml-folding",
-        ),
-        (
-            "syster::semantic::adapters::kerml::validator",
-            "kerml-validator",
-        ),
-        ("syster::semantic::adapters::sysml", "sysml-adapters"),
-        ("syster::semantic::types::diagnostic", "types-diagnostic"),
-        ("syster::semantic::types::error", "types-error"),
-        (
-            "syster::semantic::types::semantic_role",
-            "types-semantic-role",
-        ),
-        ("syster::semantic::processors", "semantic-processors"),
-        ("syster::syntax::sysml::visitor", "sysml-visitor"),
-        ("syster::syntax::sysml::parser", "sysml-parser"),
-        ("syster::syntax::sysml::ast", "sysml-ast-utils"),
-        ("syster::syntax::kerml::parser", "kerml-parser"),
-        ("syster::syntax::file", "syntax-file"),
-        ("syster::core::parse_result", "core-parse-result"),
-        ("syster::core", "core-misc"),
-    ];
+    let re = regex::Regex::new(r"(\w+::)+\w+").unwrap();
 
-    for (pattern, module) in patterns {
-        if title.contains(pattern) {
-            return module.to_string();
-        }
+    if let Some(m) = re.find(title) {
+        let path = m.as_str();
+        let segments: Vec<&str> = path.split("::").collect();
+
+        // Use last 2 segments (or 1 if short path)
+        let category = if segments.len() >= 2 {
+            format!(
+                "{}-{}",
+                segments[segments.len() - 2],
+                segments[segments.len() - 1]
+            )
+        } else {
+            segments.last().unwrap_or(&"misc").to_string()
+        };
+
+        return category.to_lowercase().replace('_', "-");
     }
 
     "misc".to_string()

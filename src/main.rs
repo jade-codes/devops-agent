@@ -13,11 +13,12 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
-/// Load a prompt template from the prompts directory
-fn load_prompt(name: &str) -> Result<String> {
+/// Load a prompt template from the agent's directory
+fn load_prompt(agent: &str) -> Result<String> {
     let prompt_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("prompts")
-        .join(format!("{}.md", name));
+        .join("agents")
+        .join(agent)
+        .join("prompt.md");
     Ok(std::fs::read_to_string(prompt_path)?)
 }
 
@@ -101,6 +102,47 @@ enum Commands {
         #[arg(short, long)]
         repo_path: PathBuf,
     },
+
+    /// Analyze coverage and create issues for untested functions (uses agents/coverage)
+    Coverage {
+        /// Repository path
+        #[arg(short, long)]
+        repo_path: PathBuf,
+
+        /// Coverage threshold (0-100)
+        #[arg(short, long, default_value = "90")]
+        threshold: u8,
+
+        /// Create GitHub issues for untested functions
+        #[arg(long)]
+        create_issues: bool,
+    },
+
+    /// Scan for TODO/FIXME comments and create issues (uses agents/todo-scanner)
+    Scan {
+        /// Repository path
+        #[arg(short, long)]
+        repo_path: PathBuf,
+
+        /// Create GitHub issues for TODOs without issue references
+        #[arg(long)]
+        create_issues: bool,
+
+        /// Dry run - show what would be created
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Batch create GitHub issues from JSON (uses agents/issue-creator)
+    CreateIssues {
+        /// Repository path
+        #[arg(short, long)]
+        repo_path: PathBuf,
+
+        /// JSON file with issues to create
+        #[arg(short, long)]
+        batch: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -110,10 +152,27 @@ async fn main() -> Result<()> {
     match args.command {
         Commands::Test { repo_path, max_prs } => run_test(&repo_path, max_prs)?,
         Commands::Feature { repo_path, issue } => run_feature(&repo_path, issue)?,
-        Commands::Bug { repo_path, max_bugs } => run_bug(&repo_path, max_bugs)?,
-        Commands::Chore { repo_path, max_chores } => run_chore(&repo_path, max_chores)?,
+        Commands::Bug {
+            repo_path,
+            max_bugs,
+        } => run_bug(&repo_path, max_bugs)?,
+        Commands::Chore {
+            repo_path,
+            max_chores,
+        } => run_chore(&repo_path, max_chores)?,
         Commands::Custom { repo_path, task } => run_custom(&repo_path, &task)?,
         Commands::Approve { repo_path } => run_approve(&repo_path)?,
+        Commands::Coverage {
+            repo_path,
+            threshold,
+            create_issues,
+        } => run_coverage(&repo_path, threshold, create_issues)?,
+        Commands::Scan {
+            repo_path,
+            create_issues,
+            dry_run,
+        } => run_scan(&repo_path, create_issues, dry_run)?,
+        Commands::CreateIssues { repo_path, batch } => run_create_issues(&repo_path, &batch)?,
     }
 
     Ok(())
@@ -152,14 +211,21 @@ fn run_test(repo_path: &Path, max_prs: u8) -> Result<()> {
             continue;
         }
 
-        println!("🤖 Spawning agent for {} ({} issues)...", module, issues.len());
+        println!(
+            "🤖 Spawning agent for {} ({} issues)...",
+            module,
+            issues.len()
+        );
 
         let issue_list: String = issues
             .iter()
             .map(|(num, title)| format!("- #{}: {}\n", num, title))
             .collect();
 
-        let closes: Vec<_> = issues.iter().map(|(n, _)| format!("closes #{}", n)).collect();
+        let closes: Vec<_> = issues
+            .iter()
+            .map(|(n, _)| format!("closes #{}", n))
+            .collect();
         let closes_str = closes.join(", ");
         let module_snake = module.replace('-', "_");
         let count = issues.len().to_string();
@@ -204,7 +270,10 @@ fn run_feature(repo_path: &Path, issue: u32) -> Result<()> {
 
     let issue_str = issue.to_string();
     let template = load_prompt("feature")?;
-    let task = render_template(&template, &[("issue", &issue_str), ("title", &title), ("body", &body)]);
+    let task = render_template(
+        &template,
+        &[("issue", &issue_str), ("title", &title), ("body", &body)],
+    );
 
     println!("Spawning agent for issue #{}...", issue);
     let result = subagent::spawn_agent(repo_path, &task)?;
@@ -238,7 +307,10 @@ fn run_bug(repo_path: &Path, max_bugs: u8) -> Result<()> {
 
         let issue_str = issue.to_string();
         let template = load_prompt("bug")?;
-        let task = render_template(&template, &[("issue", &issue_str), ("title", &title), ("body", &body)]);
+        let task = render_template(
+            &template,
+            &[("issue", &issue_str), ("title", &title), ("body", &body)],
+        );
 
         println!("Spawning agent for bug #{}...", issue);
         let result = subagent::spawn_agent(repo_path, &task)?;
@@ -273,7 +345,10 @@ fn run_chore(repo_path: &Path, max_chores: u8) -> Result<()> {
 
         let issue_str = issue.to_string();
         let template = load_prompt("chore")?;
-        let task = render_template(&template, &[("issue", &issue_str), ("title", &title), ("body", &body)]);
+        let task = render_template(
+            &template,
+            &[("issue", &issue_str), ("title", &title), ("body", &body)],
+        );
 
         println!("Spawning agent for chore #{}...", issue);
         let result = subagent::spawn_agent(repo_path, &task)?;
@@ -322,6 +397,98 @@ fn run_approve(repo_path: &Path) -> Result<()> {
 
     let approved = results.iter().filter(|(_, s)| *s).count();
     println!("\n✅ Approved {}/{} workflows", approved, results.len());
+
+    Ok(())
+}
+
+fn run_coverage(repo_path: &Path, threshold: u8, create_issues: bool) -> Result<()> {
+    println!("📊 Coverage Workflow\n");
+
+    let agent_bin =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("agents/coverage/target/release/coverage");
+
+    if !agent_bin.exists() {
+        println!("❌ Coverage agent not built. Run:");
+        println!("   cd agents/coverage && cargo build --release");
+        return Ok(());
+    }
+
+    let mut cmd = std::process::Command::new(&agent_bin);
+    cmd.arg("--repo-path").arg(repo_path);
+    cmd.arg("--threshold").arg(threshold.to_string());
+
+    if create_issues {
+        cmd.arg("--create-issues");
+    }
+
+    let status = cmd.status()?;
+
+    if status.success() {
+        println!("\n✅ Coverage analysis complete");
+    } else {
+        println!("\n❌ Coverage analysis failed");
+    }
+
+    Ok(())
+}
+
+fn run_scan(repo_path: &Path, create_issues: bool, dry_run: bool) -> Result<()> {
+    println!("🔍 TODO Scanner\n");
+
+    let agent_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("agents/todo-scanner/target/release/todo-scanner");
+
+    if !agent_bin.exists() {
+        println!("❌ TODO scanner not built. Run:");
+        println!("   cd agents/todo-scanner && cargo build --release");
+        return Ok(());
+    }
+
+    let mut cmd = std::process::Command::new(&agent_bin);
+    cmd.arg("--repo-path").arg(repo_path);
+
+    if create_issues {
+        cmd.arg("--create-issues");
+    }
+
+    if dry_run {
+        cmd.arg("--dry-run");
+    }
+
+    let status = cmd.status()?;
+
+    if status.success() {
+        println!("\n✅ Scan complete");
+    } else {
+        println!("\n❌ Scan failed");
+    }
+
+    Ok(())
+}
+
+fn run_create_issues(repo_path: &Path, batch: &Path) -> Result<()> {
+    println!("📝 Batch Issue Creator\n");
+
+    let agent_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("agents/issue-creator/target/release/issue-creator");
+
+    if !agent_bin.exists() {
+        println!("❌ Issue creator not built. Run:");
+        println!("   cd agents/issue-creator && cargo build --release");
+        return Ok(());
+    }
+
+    let mut cmd = std::process::Command::new(&agent_bin);
+    cmd.current_dir(repo_path);
+    cmd.arg("--batch").arg(batch);
+
+    let status = cmd.status()?;
+
+    if status.success() {
+        println!("\n✅ Issues created");
+    } else {
+        println!("\n❌ Issue creation failed");
+    }
 
     Ok(())
 }

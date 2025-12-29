@@ -41,6 +41,15 @@ cargo build --release
 # Spawn agents for chores
 ./target/release/chore-bot chore --repo-path /path/to/repo --max-chores 5
 
+# Analyze coverage and create issues for untested functions
+./target/release/chore-bot coverage --repo-path /path/to/repo --create-issues
+
+# Scan for TODO/FIXME and create issues
+./target/release/chore-bot scan --repo-path /path/to/repo --create-issues
+
+# Batch create issues from JSON
+./target/release/chore-bot create-issues --repo-path /path/to/repo --batch issues.json
+
 # Approve pending workflow runs
 ./target/release/chore-bot approve --repo-path /path/to/repo
 
@@ -55,11 +64,14 @@ src/
 ├── main.rs      # CLI and workflow logic
 └── subagent.rs  # GitHub API helpers
 
-prompts/
-├── test.md      # Test workflow prompt template
-├── feature.md   # Feature workflow prompt template
-├── bug.md       # Bug workflow prompt template
-└── chore.md     # Chore workflow prompt template
+agents/
+├── test/           # Test workflow (prompt + Copilot)
+├── feature/        # Feature workflow (prompt + Copilot)
+├── bug/            # Bug workflow (prompt + Copilot)
+├── chore/          # Chore workflow (prompt + Copilot)
+├── coverage/       # Coverage analysis binary
+├── issue-creator/  # Batch issue creation binary
+└── todo-scanner/   # TODO scanner binary
 ```
 
 ## 📋 Commands
@@ -70,12 +82,15 @@ prompts/
 | `feature` | Spawn agent to implement a specific feature issue |
 | `bug` | Spawn agents to fix issues labeled `bug` |
 | `chore` | Spawn agents for issues labeled `chore` |
+| `coverage` | Analyze coverage and create issues for untested functions |
+| `scan` | Scan for TODO/FIXME comments and create issues |
+| `create-issues` | Batch create GitHub issues from JSON file |
 | `approve` | Rerun all workflows with `action_required` status |
 | `custom` | Spawn agent with custom task description |
 
 ## 🔧 Customizing Prompts
 
-Edit the markdown files in `prompts/` to customize agent instructions. Templates use `{{variable}}` syntax:
+Edit `agents/<workflow>/prompt.md` to customize agent instructions. Templates use `{{variable}}` syntax:
 
 - `{{issue_numbers}}` - Comma-separated issue numbers
 - `{{issue_titles}}` - Issue titles for context
