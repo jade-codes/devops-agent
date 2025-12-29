@@ -1,13 +1,13 @@
-# Dev Container for DevOps Agent
+# Dev Container for Chore Bot
 
-This dev container includes everything you need to develop and run the DevOps Agent.
+This dev container includes everything you need to develop and run Chore Bot.
 
 ## Included
 
-✅ **Rust toolchain** (latest stable)
-✅ **Cargo** (Rust package manager)
-✅ **Git** (version control)
-✅ **GitHub CLI** (for authentication and PR management)
+✅ **Rust toolchain** (latest stable)  
+✅ **Cargo** (Rust package manager)  
+✅ **Git** (version control)  
+✅ **GitHub CLI** (for authentication and agent spawning)  
 ✅ **VS Code extensions**:
 - Rust Analyzer (LSP for Rust)
 - Better TOML (for Cargo.toml)
@@ -23,80 +23,42 @@ In VS Code:
 - Select: `Dev Containers: Reopen in Container`
 - Wait for container to build (~2-3 minutes first time)
 
-### 2. Set Environment Variables
-
-Create a `.env` file or set in terminal:
+### 2. Authenticate GitHub CLI
 
 ```bash
-export GITHUB_TOKEN="your-github-token-here"
+gh auth login
 ```
 
-Get token from: https://github.com/settings/tokens
-Required permissions: `repo`, `workflow`
+Follow the prompts to authenticate. Required for spawning Copilot agents.
 
 ### 3. Build and Run
 
 The project is automatically built on container creation. To rebuild:
 
 ```bash
-# Build CLI version
 cargo build --release
-
-# Build MCP server
-cargo build --release --bin devops-agent-mcp
-
-# Run tests
-cargo test
-
-# Format code
-cargo fmt
-
-# Check with clippy
-cargo clippy
 ```
 
-### 4. Configure MCP for Copilot
+## Usage
 
-The MCP server is already built. To use it with VS Code Copilot:
-
-1. Add to your user settings (Ctrl+, → "mcp"):
-```json
-{
-  "mcpServers": {
-    "devops-agent": {
-      "command": "/workspaces/devops-agent/target/release/devops-agent-mcp",
-      "env": {
-        "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
-      }
-    }
-  }
-}
-```
-
-2. Reload VS Code
-3. Start using devops-agent with Copilot!
-
-## Usage Examples
-
-### CLI Mode
 ```bash
-# Analyze current directory
-./target/release/devops-agent
+# Spawn agents to add tests (batched by module)
+./target/release/chore-bot test --repo-path /path/to/repo --max-prs 5
 
-# Analyze specific repo
-./target/release/devops-agent --repo-path /path/to/repo
+# Spawn agent for a feature
+./target/release/chore-bot feature --repo-path /path/to/repo --issue 123
 
-# Output as markdown
-./target/release/devops-agent --output markdown
-```
+# Spawn agents to fix bugs
+./target/release/chore-bot bug --repo-path /path/to/repo --max-bugs 3
 
-### MCP Mode (with Copilot)
-```
-You: "Use devops-agent to scan examples/ and find issues"
-Copilot: [scans and reports issues]
+# Spawn agents for chores
+./target/release/chore-bot chore --repo-path /path/to/repo --max-chores 5
 
-You: "Fix all security issues and create PRs"
-Copilot: [fixes and creates PRs automatically]
+# Approve pending workflow runs
+./target/release/chore-bot approve --repo-path /path/to/repo
+
+# Custom task
+./target/release/chore-bot custom --repo-path /path/to/repo --task "Your task"
 ```
 
 ## SSH Key Mounting
@@ -112,29 +74,17 @@ Your local `~/.ssh` directory is mounted (read-only) so you can:
 - Check Docker is running
 - Try: `Dev Containers: Rebuild Container`
 
-**GitHub token issues:**
-- Verify token in environment: `echo $GITHUB_TOKEN`
-- Check token permissions at GitHub settings
+**GitHub CLI not authenticated:**
+- Run: `gh auth login`
+- Check status: `gh auth status`
 
 **Cargo build fails:**
 - Clean and rebuild: `cargo clean && cargo build`
 - Update dependencies: `cargo update`
 
-**MCP server not connecting:**
-- Check binary exists: `ls -la target/release/devops-agent-mcp`
-- Make executable: `chmod +x target/release/devops-agent-mcp`
-- Check VS Code output panel for errors
-
 ## Development Tips
 
 - **Hot reload**: Use `cargo watch -x run` for auto-rebuild on changes
 - **Debug mode**: Build without `--release` for faster compilation + debug symbols
-- **Test specific module**: `cargo test scanner`
-- **Check coverage**: Install `cargo-tarpaulin` for test coverage reports
-
-## Next Steps
-
-1. Set your `GITHUB_TOKEN` environment variable
-2. Try scanning the examples: `./target/release/devops-agent --repo-path examples/`
-3. Configure MCP and use with Copilot
-4. Start automating your code reviews! 🚀
+- **Check lints**: `cargo clippy`
+- **Format code**: `cargo fmt`
