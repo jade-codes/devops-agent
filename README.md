@@ -1,53 +1,81 @@
-# 🤖 Chore Bot - Automated Test Coverage Agent
+# 🤖 Chore Bot - GitHub Copilot Agent Orchestrator
 
-A Rust-based multi-agent automation system that automatically identifies untested code and creates pull requests with comprehensive test coverage. Built to help maintain high test coverage standards without manual effort.
+A Rust-based automation tool that spawns GitHub Copilot agents to handle development tasks. Automatically processes GitHub issues and creates pull requests for tests, features, bugs, and chores.
 
 ## ✨ Features
 
-- 🔍 **Automated Coverage Analysis** - Scans code using cargo-llvm-cov and identifies functions below coverage threshold
-- 🤖 **Intelligent Test Generation** - Analyzes source code structure and generates real, executable tests
-- 📋 **Issue Tracking** - Automatically creates GitHub issues for untested functions
-- 🔄 **Multi-Agent Orchestration** - Coordinates coverage analysis and test implementation workflows
-- 🚀 **Automated PRs** - Creates pull requests with generated tests that pass CI
-- ⚡ **Fast & Efficient** - Built in Rust with optimized coverage tools
-- 🎯 **Smart Filtering** - Only processes issues without existing PRs
-
-## 🏗️ Architecture
-
-### Agents
-
-1. **Coverage Agent** (`agents/coverage/`)
-   - Runs `cargo-llvm-cov` to analyze test coverage
-   - Parses cobertura.xml reports
-   - Creates GitHub issues for functions with <90% coverage
-   - Tracks coverage at file and function levels
-
-2. **Todo-Resolver Agent** (`agents/todo-resolver/`)
-   - Fetches testing issues from GitHub
-   - Analyzes source code to understand function signatures and struct fields
-   - Generates context-aware tests based on function types (PartialEq, Clone, constructors, etc.)
-   - Runs tests to verify they work
-   - Creates branches, commits, and opens pull requests
-
-3. **Orchestrator** (`src/orchestrator.rs`)
-   - Coordinates workflows across multiple agents
-   - **Coverage Workflow**: Runs coverage analysis and creates issues
-   - **Test Workflow**: Processes issues and creates PRs
-   - Filters out issues that already have PRs
+- 🧪 **Test Workflow** - Batch issues by module and spawn agents to add comprehensive tests
+- 🚀 **Feature Workflow** - Spawn agents to implement features from issues
+- 🐛 **Bug Workflow** - Spawn agents to fix bugs with regression tests
+- 🧹 **Chore Workflow** - Spawn agents for tech debt and refactoring
+- ✅ **Workflow Approval** - Automatically rerun pending CI workflows
+- 📝 **Customizable Prompts** - Markdown templates for agent instructions
+- 🎯 **Smart Batching** - Groups related issues to minimize merge conflicts
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Rust 1.70 or higher
-- `cargo-llvm-cov` installed (`cargo install cargo-llvm-cov`)
+- Rust 1.70+
 - GitHub CLI (`gh`) authenticated
-- Target repository cloned locally
+- GitHub Copilot with agent-task access
 
 ### Installation
 
-1. **Clone the repository:**
-   ```bash
+```bash
+cargo build --release
+```
+
+### Usage
+
+```bash
+# Spawn agents to add tests (batched by module)
+./target/release/chore-bot test --repo-path /path/to/repo --max-prs 5
+
+# Spawn agent for a feature
+./target/release/chore-bot feature --repo-path /path/to/repo --issue 123
+
+# Spawn agents to fix bugs
+./target/release/chore-bot bug --repo-path /path/to/repo --max-bugs 3
+
+# Spawn agents for chores
+./target/release/chore-bot chore --repo-path /path/to/repo --max-chores 5
+
+# Approve pending workflow runs
+./target/release/chore-bot approve --repo-path /path/to/repo
+
+# Custom task
+./target/release/chore-bot custom --repo-path /path/to/repo --task "Your task description"
+```
+
+## 📁 Project Structure
+
+```
+src/
+├── main.rs      # CLI and workflow logic
+└── subagent.rs  # GitHub API helpers
+
+prompts/
+├── test.md      # Test workflow prompt template
+├── feature.md   # Feature workflow prompt template
+├── bug.md       # Bug workflow prompt template
+└── chore.md     # Chore workflow prompt template
+```
+
+## 🔧 Customizing Prompts
+
+Edit the markdown files in `prompts/` to customize agent instructions. Templates use `{{variable}}` syntax for dynamic values.
+
+## 📋 Commands
+
+| Command | Description |
+|---------|-------------|
+| `test` | Spawn agents to add tests for issues labeled `testing` |
+| `feature` | Spawn agent to implement a specific feature issue |
+| `bug` | Spawn agents to fix issues labeled `bug` |
+| `chore` | Spawn agents for issues labeled `chore` |
+| `approve` | Rerun all workflows with `action_required` status |
+| `custom` | Spawn agent with custom task description |
    git clone https://github.com/your-username/chore-bot.git
    cd chore-bot
    ```

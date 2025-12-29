@@ -1,5 +1,5 @@
 {
-  "name": "DevOps Agent Dev Container",
+  "name": "Chore Bot Dev Container",
   "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
   
   "features": {
@@ -26,7 +26,7 @@
     }
   },
 
-  "postCreateCommand": "cargo build --release && echo '✅ Dev container ready! DevOps Agent built successfully.'",
+  "postCreateCommand": "cargo build --release && echo '✅ Chore Bot built successfully! Run: gh auth login'",
 
   "remoteEnv": {
     "RUST_BACKTRACE": "1"
