@@ -41,15 +41,19 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Spawn agents to add tests (one per module batch)
+    /// Spawn agents to add tests
     Test {
         /// Repository path
         #[arg(short, long)]
         repo_path: PathBuf,
 
-        /// Max PRs to create (one per module)
+        /// Max agents to spawn
         #[arg(short, long, default_value = "5")]
         max_prs: u8,
+
+        /// Batch by fixed size instead of module (issues per agent)
+        #[arg(long)]
+        batch_size: Option<u8>,
     },
 
     /// Spawn agent to implement a feature
@@ -150,7 +154,11 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Commands::Test { repo_path, max_prs } => run_test(&repo_path, max_prs)?,
+        Commands::Test {
+            repo_path,
+            max_prs,
+            batch_size,
+        } => run_test(&repo_path, max_prs, batch_size)?,
         Commands::Feature { repo_path, issue } => run_feature(&repo_path, issue)?,
         Commands::Bug {
             repo_path,
@@ -178,9 +186,9 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Spawn agents to handle testing issues (one per module batch)
-fn run_test(repo_path: &Path, max_prs: u8) -> Result<()> {
-    println!("🧪 Test Workflow (batched by module)\n");
+/// Spawn agents to handle testing issues
+fn run_test(repo_path: &Path, max_prs: u8, batch_size: Option<u8>) -> Result<()> {
+    println!("🧪 Test Workflow\n");
 
     let all_issues = subagent::list_issues_by_label(repo_path, "testing")?;
     let open_prs = subagent::list_open_prs(repo_path)?;
@@ -196,40 +204,57 @@ fn run_test(repo_path: &Path, max_prs: u8) -> Result<()> {
 
     println!("Found {} issues total", issues.len());
 
-    let batches = subagent::group_by_module(repo_path, &issues)?;
-    println!("Grouped into {} module batches:\n", batches.len());
+    // Build batches based on mode
+    let batches: Vec<(String, Vec<(u32, String)>)> = if let Some(size) = batch_size {
+        // Batch by fixed size
+        let mut issues_with_titles: Vec<(u32, String)> = Vec::new();
+        for &issue_num in &issues {
+            if let Some(title) = subagent::fetch_issue_title(repo_path, issue_num)? {
+                issues_with_titles.push((issue_num, title));
+            }
+        }
+        issues_with_titles
+            .chunks(size as usize)
+            .enumerate()
+            .map(|(i, chunk)| (format!("batch-{}", i + 1), chunk.to_vec()))
+            .collect()
+    } else {
+        // Batch by module (default)
+        subagent::group_by_module(repo_path, &issues)?
+    };
 
-    for (module, issues) in &batches {
-        println!("  {}: {} issues", module, issues.len());
+    println!("Grouped into {} batches\n", batches.len());
+    for (name, issues) in &batches {
+        println!("  {}: {} issues", name, issues.len());
     }
     println!();
 
     let mut spawned = 0;
-    for (module, issues) in batches.into_iter().take(max_prs as usize) {
+    for (batch_name, batch) in batches.into_iter().take(max_prs as usize) {
         println!(
             "🤖 Spawning agent for {} ({} issues)...",
-            module,
-            issues.len()
+            batch_name,
+            batch.len()
         );
 
-        let issue_list: String = issues
+        let issue_list: String = batch
             .iter()
             .map(|(num, title)| format!("- #{}: {}\n", num, title))
             .collect();
 
-        let closes: Vec<_> = issues
+        let closes: Vec<_> = batch
             .iter()
             .map(|(n, _)| format!("closes #{}", n))
             .collect();
         let closes_str = closes.join(", ");
-        let module_snake = module.replace('-', "_");
-        let count = issues.len().to_string();
+        let module_snake = batch_name.replace('-', "_");
+        let count = batch.len().to_string();
 
         let template = load_prompt("test")?;
         let task = render_template(
             &template,
             &[
-                ("module", &module),
+                ("module", &batch_name),
                 ("issue_list", &issue_list),
                 ("module_snake", &module_snake),
                 ("closes_str", &closes_str),
