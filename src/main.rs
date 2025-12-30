@@ -206,11 +206,6 @@ fn run_test(repo_path: &Path, max_prs: u8) -> Result<()> {
 
     let mut spawned = 0;
     for (module, issues) in batches.into_iter().take(max_prs as usize) {
-        if issues.len() < 2 {
-            println!("⏭️  Skipping {} (only {} issue)", module, issues.len());
-            continue;
-        }
-
         println!(
             "🤖 Spawning agent for {} ({} issues)...",
             module,
