@@ -15,10 +15,13 @@ Add comprehensive tests for the **{{module}}** module.
 - Check if the logic makes sense and is correct
 - If you find bugs, note them but still test current behavior
 
-### 3. ONE TEST FILE FOR THIS BATCH
-- Create ONE test file: `{{module_snake}}_test.rs`
-- All tests for this batch go in that single file
-- Add module declaration to mod.rs: `#[cfg(test)] mod {{module_snake}}_test;`
+### 3. TEST FILE LOCATION AND NAMING
+- **Unit tests**: `{{module_snake}}/tests/tests_*.rs` (tests folder inside module)
+- **Integration tests**: `tests/{{module_snake}}/tests_*.rs` (module folder inside root tests/)
+- Use prefix `tests_` for all test files (e.g., `tests_selection_range.rs`)
+- All tests for this batch go in the appropriate folder
+- Example unit test: `server/selection_range.rs` → `server/tests/tests_selection_range.rs`
+- Example integration test: `server/selection_range.rs` → `tests/server/tests_selection_range.rs`
 
 ### 4. QUALITY TESTS ONLY
 - NO TODO comments or placeholder tests

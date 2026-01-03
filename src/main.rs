@@ -26,7 +26,7 @@ fn load_prompt(agent: &str) -> Result<String> {
 fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
     let mut result = template.to_string();
     for (key, value) in vars {
-        result = result.replace(&format!("{{{{{}}}}}", key), value);
+        result = result.replace(&format!("{{{{{key}}}}}"), value);
     }
     result
 }
@@ -56,15 +56,15 @@ enum Commands {
         batch_size: Option<u8>,
     },
 
-    /// Spawn agent to implement a feature
+    /// Spawn agents to implement features
     Feature {
         /// Repository path
         #[arg(short, long)]
         repo_path: PathBuf,
 
-        /// GitHub issue number
-        #[arg(short, long)]
-        issue: u32,
+        /// Max agents to spawn
+        #[arg(short, long, default_value = "3")]
+        max_prs: u8,
     },
 
     /// Spawn agents to fix bugs
@@ -147,6 +147,13 @@ enum Commands {
         #[arg(short, long)]
         batch: PathBuf,
     },
+
+    /// Comment on PRs with failing pipelines to request fixes
+    Nudge {
+        /// Repository path
+        #[arg(short, long)]
+        repo_path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -159,7 +166,7 @@ async fn main() -> Result<()> {
             max_prs,
             batch_size,
         } => run_test(&repo_path, max_prs, batch_size)?,
-        Commands::Feature { repo_path, issue } => run_feature(&repo_path, issue)?,
+        Commands::Feature { repo_path, max_prs } => run_feature(&repo_path, max_prs)?,
         Commands::Bug {
             repo_path,
             max_bugs,
@@ -181,6 +188,7 @@ async fn main() -> Result<()> {
             dry_run,
         } => run_scan(&repo_path, create_issues, dry_run)?,
         Commands::CreateIssues { repo_path, batch } => run_create_issues(&repo_path, &batch)?,
+        Commands::Nudge { repo_path } => run_nudge(&repo_path)?,
     }
 
     Ok(())
@@ -239,12 +247,12 @@ fn run_test(repo_path: &Path, max_prs: u8, batch_size: Option<u8>) -> Result<()>
 
         let issue_list: String = batch
             .iter()
-            .map(|(num, title)| format!("- #{}: {}\n", num, title))
+            .map(|(num, title)| format!("- #{num}: {title}\n"))
             .collect();
 
         let closes: Vec<_> = batch
             .iter()
-            .map(|(n, _)| format!("closes #{}", n))
+            .map(|(n, _)| format!("closes #{n}"))
             .collect();
         let closes_str = closes.join(", ");
         let module_snake = batch_name.replace('-', "_");
@@ -271,38 +279,56 @@ fn run_test(repo_path: &Path, max_prs: u8, batch_size: Option<u8>) -> Result<()>
         }
     }
 
-    println!("\n✅ Spawned {} agents", spawned);
+    println!("\n✅ Spawned {spawned} agents");
     println!("Monitor: gh agent-task list");
 
     Ok(())
 }
 
-fn run_feature(repo_path: &Path, issue: u32) -> Result<()> {
+fn run_feature(repo_path: &Path, max_prs: u8) -> Result<()> {
     println!("🚀 Feature Workflow\n");
 
-    let (title, body) = match subagent::fetch_issue(repo_path, issue)? {
-        Some(details) => details,
-        None => {
-            println!("Failed to fetch issue #{}", issue);
-            return Ok(());
-        }
-    };
+    let all_issues = subagent::list_issues_by_label(repo_path, "enhancement")?;
+    let open_prs = subagent::list_open_prs(repo_path)?;
+    let issues: Vec<_> = all_issues
+        .into_iter()
+        .filter(|n| !open_prs.contains(n))
+        .collect();
 
-    let issue_str = issue.to_string();
-    let template = load_prompt("feature")?;
-    let task = render_template(
-        &template,
-        &[("issue", &issue_str), ("title", &title), ("body", &body)],
-    );
-
-    println!("Spawning agent for issue #{}...", issue);
-    let result = subagent::spawn_agent(repo_path, &task)?;
-
-    if result.success {
-        println!("✅ Agent spawned");
-    } else {
-        println!("❌ Failed: {}", result.message);
+    if issues.is_empty() {
+        println!("No enhancement issues found.");
+        return Ok(());
     }
+
+    println!("Found {} issues\n", issues.len());
+
+    let mut spawned = 0;
+    for issue in issues.into_iter().take(max_prs as usize) {
+        let (title, body) = match subagent::fetch_issue(repo_path, issue)? {
+            Some(details) => details,
+            None => continue,
+        };
+
+        let issue_str = issue.to_string();
+        let template = load_prompt("feature")?;
+        let task = render_template(
+            &template,
+            &[("issue", &issue_str), ("title", &title), ("body", &body)],
+        );
+
+        println!("🤖 Spawning agent for #{issue}: {title}...");
+        let result = subagent::spawn_agent(repo_path, &task)?;
+
+        if result.success {
+            println!("   ✅ Spawned");
+            spawned += 1;
+        } else {
+            println!("   ❌ Failed: {}", result.message);
+        }
+    }
+
+    println!("\n✅ Spawned {spawned} agents");
+    println!("Monitor: gh agent-task list");
 
     Ok(())
 }
@@ -332,7 +358,7 @@ fn run_bug(repo_path: &Path, max_bugs: u8) -> Result<()> {
             &[("issue", &issue_str), ("title", &title), ("body", &body)],
         );
 
-        println!("Spawning agent for bug #{}...", issue);
+        println!("Spawning agent for bug #{issue}...");
         let result = subagent::spawn_agent(repo_path, &task)?;
 
         if result.success {
@@ -370,7 +396,7 @@ fn run_chore(repo_path: &Path, max_chores: u8) -> Result<()> {
             &[("issue", &issue_str), ("title", &title), ("body", &body)],
         );
 
-        println!("Spawning agent for chore #{}...", issue);
+        println!("Spawning agent for chore #{issue}...");
         let result = subagent::spawn_agent(repo_path, &task)?;
 
         if result.success {
@@ -409,9 +435,9 @@ fn run_approve(repo_path: &Path) -> Result<()> {
 
     for (run_id, success) in &results {
         if *success {
-            println!("✅ Approved run {}", run_id);
+            println!("✅ Approved run {run_id}");
         } else {
-            println!("❌ Failed to approve run {}", run_id);
+            println!("❌ Failed to approve run {run_id}");
         }
     }
 
@@ -509,6 +535,44 @@ fn run_create_issues(repo_path: &Path, batch: &Path) -> Result<()> {
     } else {
         println!("\n❌ Issue creation failed");
     }
+
+    Ok(())
+}
+
+fn run_nudge(repo_path: &Path) -> Result<()> {
+    println!("💬 Nudge PRs with Failing Pipelines\n");
+
+    let failing_prs = subagent::list_failing_prs(repo_path)?;
+
+    if failing_prs.is_empty() {
+        println!("✅ No PRs with failing pipelines found!");
+        return Ok(());
+    }
+
+    println!("Found {} PRs with failing checks:\n", failing_prs.len());
+
+    let comment = r#"@copilot This PR has failing CI checks.
+
+Please take a look at the build failures and push a fix. Common issues:
+- Compilation errors
+- Test failures  
+- Linting/formatting issues
+
+Run `make run-guidelines` locally to verify before pushing."#;
+
+    let mut commented = 0;
+    for pr in &failing_prs {
+        println!("  #{}: {} (by @{})", pr.number, pr.title, pr.author);
+
+        if subagent::comment_on_pr(repo_path, pr.number, comment)? {
+            println!("     ✅ Commented");
+            commented += 1;
+        } else {
+            println!("     ❌ Failed to comment");
+        }
+    }
+
+    println!("\n✅ Commented on {}/{} PRs", commented, failing_prs.len());
 
     Ok(())
 }

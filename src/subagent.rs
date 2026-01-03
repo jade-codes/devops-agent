@@ -6,6 +6,12 @@ use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
+/// Issue with number and title
+pub type IssueWithTitle = (u32, String);
+
+/// Batch of issues grouped by module name
+pub type IssueBatch = (String, Vec<IssueWithTitle>);
+
 /// Response from spawning a GitHub agent task
 #[derive(Debug)]
 pub struct AgentTaskResult {
@@ -126,13 +132,10 @@ pub fn list_open_prs(repo_path: &Path) -> Result<std::collections::HashSet<u32>>
 }
 
 /// Group issues by module based on function path in title
-pub fn group_by_module(
-    repo_path: &Path,
-    issues: &[u32],
-) -> Result<Vec<(String, Vec<(u32, String)>)>> {
+pub fn group_by_module(repo_path: &Path, issues: &[u32]) -> Result<Vec<IssueBatch>> {
     use std::collections::HashMap;
 
-    let mut batches: HashMap<String, Vec<(u32, String)>> = HashMap::new();
+    let mut batches: HashMap<String, Vec<IssueWithTitle>> = HashMap::new();
 
     for &issue_num in issues {
         if let Some(title) = fetch_issue_title(repo_path, issue_num)? {
@@ -203,7 +206,7 @@ pub fn approve_pending_workflows(repo_path: &Path) -> Result<Vec<(u64, bool)>> {
         let rerun_result = Command::new("gh")
             .args([
                 "api",
-                &format!("repos/{{owner}}/{{repo}}/actions/runs/{}/rerun", run_id),
+                &format!("repos/{{owner}}/{{repo}}/actions/runs/{run_id}/rerun"),
                 "--method",
                 "POST",
             ])
@@ -214,4 +217,78 @@ pub fn approve_pending_workflows(repo_path: &Path) -> Result<Vec<(u64, bool)>> {
     }
 
     Ok(results)
+}
+
+/// PR with failing checks
+#[derive(Debug)]
+pub struct FailingPr {
+    pub number: u32,
+    pub title: String,
+    pub author: String,
+}
+
+/// List PRs with failing CI checks
+pub fn list_failing_prs(repo_path: &Path) -> Result<Vec<FailingPr>> {
+    let output = Command::new("gh")
+        .args([
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,title,author,headRefName,statusCheckRollup",
+        ])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let mut failing = Vec::new();
+
+    if let Some(prs) = json.as_array() {
+        for pr in prs {
+            let checks = pr.get("statusCheckRollup").and_then(|v| v.as_array());
+
+            // Check if any check has failed
+            let has_failure = checks.is_some_and(|checks| {
+                checks.iter().any(|check| {
+                    check.get("conclusion").and_then(|c| c.as_str()) == Some("FAILURE")
+                })
+            });
+
+            if has_failure {
+                failing.push(FailingPr {
+                    number: pr.get("number").and_then(|n| n.as_u64()).unwrap_or(0) as u32,
+                    title: pr
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    author: pr
+                        .get("author")
+                        .and_then(|a| a.get("login"))
+                        .and_then(|l| l.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(failing)
+}
+
+/// Comment on a PR
+pub fn comment_on_pr(repo_path: &Path, pr_number: u32, comment: &str) -> Result<bool> {
+    let output = Command::new("gh")
+        .args(["pr", "comment", &pr_number.to_string(), "--body", comment])
+        .current_dir(repo_path)
+        .output()?;
+
+    Ok(output.status.success())
 }
