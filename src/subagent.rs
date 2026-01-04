@@ -292,3 +292,70 @@ pub fn comment_on_pr(repo_path: &Path, pr_number: u32, comment: &str) -> Result<
 
     Ok(output.status.success())
 }
+
+/// PR with merge conflict info
+#[derive(Debug)]
+pub struct ConflictingPr {
+    pub number: u32,
+    pub title: String,
+    pub author: String,
+}
+
+/// List PRs with merge conflicts (mergeable state is CONFLICTING)
+pub fn list_conflicting_prs(repo_path: &Path) -> Result<Vec<ConflictingPr>> {
+    let output = Command::new("gh")
+        .args([
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,title,author,mergeable",
+        ])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let mut conflicting = Vec::new();
+
+    if let Some(prs) = json.as_array() {
+        for pr in prs {
+            let mergeable = pr.get("mergeable").and_then(|m| m.as_str());
+
+            if mergeable == Some("CONFLICTING") {
+                conflicting.push(ConflictingPr {
+                    number: pr.get("number").and_then(|n| n.as_u64()).unwrap_or(0) as u32,
+                    title: pr
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    author: pr
+                        .get("author")
+                        .and_then(|a| a.get("login"))
+                        .and_then(|l| l.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(conflicting)
+}
+
+/// Close a PR
+pub fn close_pr(repo_path: &Path, pr_number: u32) -> Result<bool> {
+    let output = Command::new("gh")
+        .args(["pr", "close", &pr_number.to_string()])
+        .current_dir(repo_path)
+        .output()?;
+
+    Ok(output.status.success())
+}

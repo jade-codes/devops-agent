@@ -154,6 +154,17 @@ enum Commands {
         #[arg(short, long)]
         repo_path: PathBuf,
     },
+
+    /// Handle PRs with merge conflicts (comment to rebase or close)
+    Conflicts {
+        /// Repository path
+        #[arg(short, long)]
+        repo_path: PathBuf,
+
+        /// Close conflicting PRs instead of commenting
+        #[arg(long)]
+        close: bool,
+    },
 }
 
 #[tokio::main]
@@ -189,6 +200,7 @@ async fn main() -> Result<()> {
         } => run_scan(&repo_path, create_issues, dry_run)?,
         Commands::CreateIssues { repo_path, batch } => run_create_issues(&repo_path, &batch)?,
         Commands::Nudge { repo_path } => run_nudge(&repo_path)?,
+        Commands::Conflicts { repo_path, close } => run_conflicts(&repo_path, close)?,
     }
 
     Ok(())
@@ -250,10 +262,7 @@ fn run_test(repo_path: &Path, max_prs: u8, batch_size: Option<u8>) -> Result<()>
             .map(|(num, title)| format!("- #{num}: {title}\n"))
             .collect();
 
-        let closes: Vec<_> = batch
-            .iter()
-            .map(|(n, _)| format!("closes #{n}"))
-            .collect();
+        let closes: Vec<_> = batch.iter().map(|(n, _)| format!("closes #{n}")).collect();
         let closes_str = closes.join(", ");
         let module_snake = batch_name.replace('-', "_");
         let count = batch.len().to_string();
@@ -573,6 +582,62 @@ Run `make run-guidelines` locally to verify before pushing."#;
     }
 
     println!("\n✅ Commented on {}/{} PRs", commented, failing_prs.len());
+
+    Ok(())
+}
+
+fn run_conflicts(repo_path: &Path, close: bool) -> Result<()> {
+    println!("🔀 Handle PRs with Merge Conflicts\n");
+
+    let conflicting_prs = subagent::list_conflicting_prs(repo_path)?;
+
+    if conflicting_prs.is_empty() {
+        println!("✅ No PRs with merge conflicts found!");
+        return Ok(());
+    }
+
+    println!(
+        "Found {} PRs with merge conflicts:\n",
+        conflicting_prs.len()
+    );
+
+    let mut handled = 0;
+
+    if close {
+        // Close conflicting PRs
+        for pr in &conflicting_prs {
+            println!("  #{}: {} (by @{})", pr.number, pr.title, pr.author);
+
+            if subagent::close_pr(repo_path, pr.number)? {
+                println!("     ✅ Closed");
+                handled += 1;
+            } else {
+                println!("     ❌ Failed to close");
+            }
+        }
+        println!("\n✅ Closed {}/{} PRs", handled, conflicting_prs.len());
+    } else {
+        // Comment asking to rebase
+        let comment = r#"@copilot This PR has merge conflicts.
+
+Please rebase on main and resolve the conflicts, then push again."#;
+
+        for pr in &conflicting_prs {
+            println!("  #{}: {} (by @{})", pr.number, pr.title, pr.author);
+
+            if subagent::comment_on_pr(repo_path, pr.number, comment)? {
+                println!("     ✅ Commented");
+                handled += 1;
+            } else {
+                println!("     ❌ Failed to comment");
+            }
+        }
+        println!(
+            "\n✅ Commented on {}/{} PRs",
+            handled,
+            conflicting_prs.len()
+        );
+    }
 
     Ok(())
 }

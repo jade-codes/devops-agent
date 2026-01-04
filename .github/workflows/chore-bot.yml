@@ -1,0 +1,121 @@
+name: Chore Bot Automation
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 'Repository to run on (syster or mother)'
+        required: true
+        default: 'syster'
+        type: choice
+        options:
+          - syster
+          - mother
+      command:
+        description: 'Command to run'
+        required: true
+        default: 'nudge'
+        type: choice
+        options:
+          - nudge
+          - conflicts
+          - approve
+          - test
+          - feature
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  run-chore-bot:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo: [syster, mother]
+    
+    steps:
+      - name: Checkout chore-bot
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build chore-bot
+        run: cargo build --release
+
+      - name: Clone target repo
+        run: gh repo clone jade-codes/${{ matrix.repo }} repos/${{ matrix.repo }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve pending workflows
+        run: ./target/release/chore-bot approve --repo-path repos/${{ matrix.repo }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Nudge failing PRs
+        run: ./target/release/chore-bot nudge --repo-path repos/${{ matrix.repo }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Handle merge conflicts
+        run: ./target/release/chore-bot conflicts --repo-path repos/${{ matrix.repo }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  # Only spawn new agents once per day to avoid overwhelming
+  spawn-agents:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 0 * * *' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        repo: [syster, mother]
+
+    steps:
+      - name: Checkout chore-bot
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build chore-bot
+        run: cargo build --release
+
+      - name: Clone target repo
+        run: gh repo clone jade-codes/${{ matrix.repo }} repos/${{ matrix.repo }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Spawn test agents (max 3)
+        run: ./target/release/chore-bot test --repo-path repos/${{ matrix.repo }} --max-prs 3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
