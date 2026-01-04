@@ -211,18 +211,18 @@ fn run_test(repo_path: &Path, max_prs: u8, batch_size: Option<u8>) -> Result<()>
     println!("🧪 Test Workflow\n");
 
     let all_issues = subagent::list_issues_by_label(repo_path, "testing")?;
-    let open_prs = subagent::list_open_prs(repo_path)?;
+    let issues_with_prs = subagent::list_issues_with_open_prs(repo_path)?;
     let issues: Vec<_> = all_issues
         .into_iter()
-        .filter(|n| !open_prs.contains(n))
+        .filter(|n| !issues_with_prs.contains(n))
         .collect();
 
     if issues.is_empty() {
-        println!("No testing issues found.");
+        println!("No testing issues without open PRs found.");
         return Ok(());
     }
 
-    println!("Found {} issues total", issues.len());
+    println!("Found {} issues without PRs", issues.len());
 
     // Build batches based on mode
     let batches: Vec<(String, Vec<(u32, String)>)> = if let Some(size) = batch_size {
@@ -298,18 +298,18 @@ fn run_feature(repo_path: &Path, max_prs: u8) -> Result<()> {
     println!("🚀 Feature Workflow\n");
 
     let all_issues = subagent::list_issues_by_label(repo_path, "enhancement")?;
-    let open_prs = subagent::list_open_prs(repo_path)?;
+    let issues_with_prs = subagent::list_issues_with_open_prs(repo_path)?;
     let issues: Vec<_> = all_issues
         .into_iter()
-        .filter(|n| !open_prs.contains(n))
+        .filter(|n| !issues_with_prs.contains(n))
         .collect();
 
     if issues.is_empty() {
-        println!("No enhancement issues found.");
+        println!("No enhancement issues without open PRs found.");
         return Ok(());
     }
 
-    println!("Found {} issues\n", issues.len());
+    println!("Found {} issues without PRs\n", issues.len());
 
     let mut spawned = 0;
     for issue in issues.into_iter().take(max_prs as usize) {

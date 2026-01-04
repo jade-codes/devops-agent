@@ -131,6 +131,55 @@ pub fn list_open_prs(repo_path: &Path) -> Result<std::collections::HashSet<u32>>
     Ok(prs)
 }
 
+/// List issue numbers that are linked to open PRs (via body text like "closes #123" or "#123")
+pub fn list_issues_with_open_prs(repo_path: &Path) -> Result<std::collections::HashSet<u32>> {
+    let output = Command::new("gh")
+        .args([
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "150",
+            "--json",
+            "body,title",
+        ])
+        .current_dir(repo_path)
+        .output()?;
+
+    let mut issues = std::collections::HashSet::new();
+
+    if !output.status.success() {
+        return Ok(issues);
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+
+    // Regex to find issue references like #123, closes #123, fixes #123
+    let re = regex::Regex::new(r"#(\d+)").unwrap();
+
+    if let Some(prs) = json.as_array() {
+        for pr in prs {
+            let body = pr.get("body").and_then(|b| b.as_str()).unwrap_or("");
+            let title = pr.get("title").and_then(|t| t.as_str()).unwrap_or("");
+
+            // Extract all issue numbers from body and title
+            for cap in re.captures_iter(body) {
+                if let Some(num) = cap.get(1).and_then(|m| m.as_str().parse().ok()) {
+                    issues.insert(num);
+                }
+            }
+            for cap in re.captures_iter(title) {
+                if let Some(num) = cap.get(1).and_then(|m| m.as_str().parse().ok()) {
+                    issues.insert(num);
+                }
+            }
+        }
+    }
+
+    Ok(issues)
+}
+
 /// Group issues by module based on function path in title
 pub fn group_by_module(repo_path: &Path, issues: &[u32]) -> Result<Vec<IssueBatch>> {
     use std::collections::HashMap;
