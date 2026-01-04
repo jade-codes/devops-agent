@@ -348,6 +348,7 @@ pub struct ConflictingPr {
     pub number: u32,
     pub title: String,
     pub author: String,
+    pub linked_issues: Vec<u32>,
 }
 
 /// List PRs with merge conflicts (mergeable state is CONFLICTING)
@@ -361,7 +362,7 @@ pub fn list_conflicting_prs(repo_path: &Path) -> Result<Vec<ConflictingPr>> {
             "--limit",
             "100",
             "--json",
-            "number,title,author,mergeable",
+            "number,title,author,mergeable,body",
         ])
         .current_dir(repo_path)
         .output()?;
@@ -373,24 +374,44 @@ pub fn list_conflicting_prs(repo_path: &Path) -> Result<Vec<ConflictingPr>> {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
     let mut conflicting = Vec::new();
 
+    // Regex to find issue references like #123, closes #123, fixes #123
+    let re = regex::Regex::new(r"#(\d+)").unwrap();
+
     if let Some(prs) = json.as_array() {
         for pr in prs {
             let mergeable = pr.get("mergeable").and_then(|m| m.as_str());
 
             if mergeable == Some("CONFLICTING") {
+                let body = pr.get("body").and_then(|b| b.as_str()).unwrap_or("");
+                let title = pr.get("title").and_then(|t| t.as_str()).unwrap_or("");
+
+                // Extract linked issue numbers from body and title
+                let mut linked_issues: Vec<u32> = Vec::new();
+                for cap in re.captures_iter(body) {
+                    if let Some(num) = cap.get(1).and_then(|m| m.as_str().parse().ok()) {
+                        if !linked_issues.contains(&num) {
+                            linked_issues.push(num);
+                        }
+                    }
+                }
+                for cap in re.captures_iter(title) {
+                    if let Some(num) = cap.get(1).and_then(|m| m.as_str().parse().ok()) {
+                        if !linked_issues.contains(&num) {
+                            linked_issues.push(num);
+                        }
+                    }
+                }
+
                 conflicting.push(ConflictingPr {
                     number: pr.get("number").and_then(|n| n.as_u64()).unwrap_or(0) as u32,
-                    title: pr
-                        .get("title")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("")
-                        .to_string(),
+                    title: title.to_string(),
                     author: pr
                         .get("author")
                         .and_then(|a| a.get("login"))
                         .and_then(|l| l.as_str())
                         .unwrap_or("")
                         .to_string(),
+                    linked_issues,
                 });
             }
         }

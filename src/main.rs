@@ -602,20 +602,73 @@ fn run_conflicts(repo_path: &Path, close: bool) -> Result<()> {
     );
 
     let mut handled = 0;
+    let mut issues_to_respawn: Vec<u32> = Vec::new();
 
     if close {
-        // Close conflicting PRs
+        // Close conflicting PRs and collect linked issues
         for pr in &conflicting_prs {
             println!("  #{}: {} (by @{})", pr.number, pr.title, pr.author);
+            if !pr.linked_issues.is_empty() {
+                println!("     📎 Linked issues: {:?}", pr.linked_issues);
+            }
 
             if subagent::close_pr(repo_path, pr.number)? {
                 println!("     ✅ Closed");
                 handled += 1;
+                // Collect linked issues for respawning
+                issues_to_respawn.extend(&pr.linked_issues);
             } else {
                 println!("     ❌ Failed to close");
             }
         }
         println!("\n✅ Closed {}/{} PRs", handled, conflicting_prs.len());
+
+        // Respawn agents for linked issues
+        if !issues_to_respawn.is_empty() {
+            println!(
+                "\n🔄 Respawning agents for {} linked issues...\n",
+                issues_to_respawn.len()
+            );
+
+            let batches = subagent::group_by_module(repo_path, &issues_to_respawn)?;
+            let mut spawned = 0;
+
+            for (batch_name, batch) in batches {
+                println!("  📦 Module: {} ({} issues)", batch_name, batch.len());
+
+                let issue_list: String = batch
+                    .iter()
+                    .map(|(num, title)| format!("- #{num}: {title}\n"))
+                    .collect();
+
+                let closes: Vec<_> = batch.iter().map(|(n, _)| format!("closes #{n}")).collect();
+                let closes_str = closes.join(", ");
+                let module_snake = batch_name.replace('-', "_");
+                let count = batch.len().to_string();
+
+                let template = load_prompt("test")?;
+                let task = render_template(
+                    &template,
+                    &[
+                        ("module", &batch_name),
+                        ("issue_list", &issue_list),
+                        ("module_snake", &module_snake),
+                        ("closes_str", &closes_str),
+                        ("count", &count),
+                    ],
+                );
+
+                let result = subagent::spawn_agent(repo_path, &task)?;
+                if result.success {
+                    println!("     ✅ Spawned agent");
+                    spawned += 1;
+                } else {
+                    println!("     ❌ Failed: {}", result.message);
+                }
+            }
+
+            println!("\n✅ Respawned {} agents", spawned);
+        }
     } else {
         // Comment asking to rebase
         let comment = r#"@copilot This PR has merge conflicts.
