@@ -61,49 +61,38 @@ jobs:
       - name: Build chore-bot
         run: cargo build --release
 
+      - name: Authenticate GitHub CLI
+        run: echo "${{ secrets.GH_PAT }}" | gh auth login --with-token
+
       - name: Clone target repo
         run: gh repo clone jade-codes/${{ matrix.repo }} repos/${{ matrix.repo }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Approve pending workflows
         if: github.event_name == 'schedule' || github.event.inputs.command == 'approve' || github.event.inputs.command == 'all'
         run: ./target/release/chore-bot approve --repo-path repos/${{ matrix.repo }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         continue-on-error: true
 
       - name: Nudge failing PRs
         if: github.event_name == 'schedule' || github.event.inputs.command == 'nudge' || github.event.inputs.command == 'all'
         run: ./target/release/chore-bot nudge --repo-path repos/${{ matrix.repo }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         continue-on-error: true
 
       - name: Handle merge conflicts (comment)
         if: github.event.inputs.command == 'conflicts'
         run: ./target/release/chore-bot conflicts --repo-path repos/${{ matrix.repo }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         continue-on-error: true
 
       - name: Handle merge conflicts (close and respawn)
         if: github.event_name == 'schedule' || github.event.inputs.command == 'conflicts-close' || github.event.inputs.command == 'all'
         run: ./target/release/chore-bot conflicts --repo-path repos/${{ matrix.repo }} --close
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         continue-on-error: true
 
       - name: Spawn test agents
         if: github.event_name == 'schedule' || github.event.inputs.command == 'test' || github.event.inputs.command == 'all'
         run: ./target/release/chore-bot test --repo-path repos/${{ matrix.repo }} --max-prs 3
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         continue-on-error: true
 
       - name: Spawn feature agents
         if: github.event.inputs.command == 'feature'
         run: ./target/release/chore-bot feature --repo-path repos/${{ matrix.repo }} --max-prs 3
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         continue-on-error: true
